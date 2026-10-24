@@ -113,6 +113,60 @@ The simulator is never recorded. A recording failure disables recording only; it
   `slippage_bps` as a cushion for it. A few days of paper data is anecdote, not proof: sweep widely, then check that
   the parameters you like still work on days they weren't tuned on.
 
+## Swing trading, trend following and Smart Money Concepts (`swingkit/`)
+
+A separate toolkit for the timescale where retail traders can compete: candles of hours to days, positions held days to
+weeks, so fees and latency matter far less than they do for arbitrage. It follows the three rules that matter most:
+**backtest first, risk only 1-2% per trade, keep a journal.** It is research and paper only: nothing here places an order,
+and it shares no state with the arbitrage bot.
+
+```bash
+.venv/bin/python swing.py download --days 730            # cache 4h candles + real funding history (BTC ETH SOL BNB XRP)
+.venv/bin/python swing.py backtest                       # all three strategies, long and short
+.venv/bin/python swing.py backtest --strategy trend --symbols BTCUSDT,ETHUSDT --set trend.slow=100 --no-short
+.venv/bin/python swing.py backtest --interval 1d --days 1460 --journal --csv data/trades.csv
+.venv/bin/python swing.py scan                           # what the strategies say about the latest closed candle
+.venv/bin/python swing.py journal --summary              # also: --last 20, --note 12 "text", --export trades.csv
+```
+
+| Strategy | The rule, written out |
+|---|---|
+| `trend` | Trend following. Close above the 20-candle high while EMA50 > EMA200 (mirror for shorts). Stop 3 ATR away, trailed up as a chandelier; exit on a close beyond the 10-candle low. No profit target: winners run. |
+| `swing` | Swing trading. In an EMA50 > EMA200 uptrend, RSI dips to 40 or lower near the EMA50, then turns up with an up candle. Stop below the last 10 candles, target 2R, time stop after 30 candles. |
+| `smc` | Smart Money Concepts as mechanical rules: a candle sweeps below the latest confirmed swing low and closes back above it (liquidity sweep); within 10 candles a close breaks the range high (break of structure); the order block is the last down candle before that break; enter when a later up candle dips into the block, stop beyond the block and the sweep, target 2.5R. SMC is a discretionary craft: this is one explicit, testable reading of it, not *the* method. |
+
+Each strategy is written once for longs and run on the sign-flipped price series for shorts, so the two sides cannot drift apart.
+
+**Risk.** Every trade is sized so being stopped out costs `risk_pct` of current equity: 1% by default, and **2% is a hard
+ceiling** that no setting can lift (`--risk-pct 3` is refused). Position size is capped by leverage (3x), total open risk
+("heat", 5%) and the number of open positions (5). After a 25% drawdown new entries pause for 14 days and then start over
+from the current equity, because a halt that never lifts would freeze a strategy for good.
+
+**How the backtester stays honest** (each rule has a test): a strategy decides at a candle's close from candles up to it and
+the order fills at the *next* open, so there is no look-ahead (also proven by running every strategy on a prefix and on the
+full series and requiring identical decisions); stops and targets are checked inside the candle, the stop wins a tie, and a gap
+through a stop fills at the open; every fill pays the taker fee and slippage; funding is the **real Binance funding history**
+(longs pay a positive rate, shorts receive it) and a coin without history falls back to a flat charge; positions still open at
+the end are closed and marked "end of data". The report always shows what simply holding the coins would have returned.
+
+**Journal.** `data/swing-journal.db` records every trade with the reason it was taken, stop, target, result in R, how it
+ended and your own notes; backtest runs (`--journal`) and paper trades live in the same table, tagged by mode.
+
+### What the first real backtest said (2 years of 4h candles, BTC ETH SOL BNB XRP, run on 2026-10-24)
+
+| Strategy | Trades | Win % | Expectancy | Profit factor | Return | Max drawdown |
+|---|---|---|---|---|---|---|
+| trend | 368 | 33 | +0.09R | 1.17 | +27.7% | 27.9% |
+| swing | 276 | 42 | -0.02R | 0.93 | -9.0% | 25.3% |
+| smc | 113 | 30 | -0.04R | 0.93 | -6.0% | 22.0% |
+| *holding the coins* | | | | | *+27.6% on average* | |
+
+Read this carefully. Trend following matched buy-and-hold with a drawdown of the same size, which is not an edge; swing and
+SMC lost money after costs. One two-year window is one market regime, five coins is a small sample, and nothing was tuned
+(deliberately: tuning on the same data you judge on only finds the past). Treat it as the starting line, not a verdict. The
+next honest steps are other timeframes and years (`--interval 1d --days 1460`), other coins, and parameter sweeps that
+are then checked on data they were not tuned on. A backtest also cannot see how you will behave in a 28% drawdown.
+
 ## Risk controls
 
 | Control | Behaviour |
@@ -143,6 +197,8 @@ commands.py   Telegram questions, /pause /resume, and custom paper trades /open 
 portfolio.py  positions + SQLite persistence (data/<mode>-<env>-<feed>.db)
 server.py     aiohttp dashboard + WebSocket snapshots + guarded controls
 alerts.py     Telegram notifier (queued, rate-limited, token-safe)
+swingkit/     (separate toolkit, see its section) data.py candles + funding | strategies.py trend/swing/smc |
+              risk.py 1-2% sizing + drawdown pause | backtest.py | journal.py | cli.py  <- swing.py
 ```
 
 `1000SHIB`-style perps are mapped onto the unscaled spot symbol with a price multiplier.
