@@ -36,6 +36,9 @@ MENU = [
     ("confirm", "Confirm the pending /open"),
     ("cancel", "Cancel the pending /open"),
     ("close", "Close a paper position: /close BTC"),
+    ("setups", "Swing/trend/SMC setups waiting for the next candle"),
+    ("journal", "Swing paper journal: stats and last trades"),
+    ("swing", "Swing paper accounts: equity and open trades"),
     ("help", "What I can answer"),
 ]
 
@@ -54,6 +57,9 @@ HELP = (
     "• It shows a preview first. /confirm within 60 s opens it, /cancel drops it\n"
     "• /close BTC closes both sides; until then only the protective exits apply\n"
     "• Not available: a pure long, a pure short, or the reverse pair (short spot / long perp)\n\n"
+    "Swing toolkit (paper; only when the bot was started with --swing)\n"
+    "• /setups = trend / swing / SMC setups waiting for the next candle open\n"
+    "• /swing = the three paper accounts · /journal [n] = stats and the last n trades with the reason for each\n\n"
     "I only trade LONG spot / SHORT perp, when the perp is rich versus spot. "
     "Everything else I show is information only."
 )
@@ -88,6 +94,7 @@ class CommandHandler:
         self.label = label
         self.pending: tuple[str, float, float] | None = None  # (symbol, usd, expires_at) from /open, awaiting /confirm
         self._now = time.monotonic                            # replaceable in tests
+        self.swing = None                                     # a swingkit SwingRunner when started with --swing
 
     # ---- routing -------------------------------------------------------------------------------
     async def reply(self, text: str) -> str:
@@ -133,6 +140,8 @@ class CommandHandler:
             return self._pause()
         if cmd == "/resume":
             return self._resume()
+        if cmd in ("/setups", "/setup", "/journal", "/swing"):
+            return self._swing(cmd.lstrip("/"), arg)
         return f"Unknown command {cmd}.\n\n{HELP}"
 
     def _natural(self, low: str) -> str:
@@ -377,6 +386,18 @@ class CommandHandler:
         if r.halted:
             return f"Pause cleared, but entries stay halted: {r.halt_reason}."
         return "▶️ Entries resumed."
+
+    # ---- swing toolkit (paper) -----------------------------------------------------------------
+    def _swing(self, what: str, arg: str = "") -> str:
+        """/setups, /journal [n], /swing: read-only views of the swingkit paper accounts."""
+        if self.swing is None:
+            return ("The swing toolkit isn't running in this bot. Start the bot with --swing to paper-trade the trend, "
+                    "swing and Smart Money strategies (see the README section on swingkit).")
+        if what in ("setup", "setups"):
+            return self.swing.setups_text()
+        if what == "journal":
+            return self.swing.journal_text(int(arg) if arg.strip().isdigit() else 5)
+        return self.swing.status_text()
 
     # ---- custom paper trades -------------------------------------------------------------------
     def _resolve(self, token: str) -> str | None:

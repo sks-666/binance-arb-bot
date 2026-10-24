@@ -50,6 +50,14 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="container-host mode (paper only): serve a READ-ONLY dashboard behind a login (DASHBOARD_PASSWORD) "
                         "plus /healthz on 0.0.0.0:$PORT instead of the local dashboard; the recorder stays off unless "
                         "ARBBOT_RECORD=1")
+    p.add_argument("--swing", action="store_true",
+                   help="also paper-trade the swingkit strategies (trend, swing, SMC) in this process: alerts plus the "
+                        "/setups /journal /swing Telegram commands. Paper only; separate from the arbitrage book")
+    try:  # the --swing-* options live with the toolkit; an install without swingkit/ simply doesn't offer them
+        from swingkit.paper import add_paper_args
+        add_paper_args(p, "swing-")
+    except ImportError:
+        pass
     p.add_argument("--seed", type=int, help="random seed for the simulator")
     p.add_argument("--test-alert", action="store_true", help="send one Telegram test message and exit")
     p.add_argument("--find-chat-id", action="store_true", help="list Telegram chats that messaged your bot, then exit")
@@ -214,8 +222,20 @@ async def amain(args: argparse.Namespace) -> None:
         engine = Engine(cfg, board, scanner, portfolio, risk, executor, trading=not args.no_trade, alerts=alerts,
                         depth=depth, recorder=recorder)
         sampler = DepthSampler(recorder, depth, board, cfg.recorder.depth_every_s) if (recorder and depth) else None
-        listener = TelegramListener(cfg.alerts, alerts, CommandHandler(engine, label),
-                                    poll_timeout_s=cfg.alerts.poll_timeout_s)
+        handler = CommandHandler(engine, label)
+        swing = None
+        if args.swing:  # optional second paper account family; imported lazily so the arbitrage bot never needs it
+            try:
+                from swingkit.journal import Journal
+                from swingkit.paper import SwingRunner, paper_cfg_from
+                swing = SwingRunner(paper_cfg_from(args, "swing-"), client, Journal(ROOT / args.swing_journal_db),
+                                    notify=alerts.send)
+            except ImportError:
+                sys.exit("--swing needs the swingkit/ folder next to arbbot/.")
+            except ValueError as e:
+                sys.exit(f"--swing: {e}")
+            handler.swing = swing
+        listener = TelegramListener(cfg.alerts, alerts, handler, poll_timeout_s=cfg.alerts.poll_timeout_s)
         dash = Dashboard(engine, cfg, ROOT / "web")
         if args.hosted:  # public interface: the READ-ONLY page behind a login, never the dashboard with its controls
             hosted_password, hosted_user = settings_from_env()
@@ -270,6 +290,11 @@ async def amain(args: argparse.Namespace) -> None:
         coros = [feed.run(), engine.run(), dash.broadcast_loop(), alerts.run(), listener.run(), publisher.run()]
         if sampler is not None:
             coros.append(sampler.run())
+        if swing is not None:
+            coros.append(swing.run())
+            log.info("swing toolkit: paper accounts %s on %s candles for %s (journal %s); /setups /journal /swing",
+                     "+".join(swing.cfg.strategies), swing.cfg.interval,
+                     ",".join(s.removesuffix("USDT") for s in swing.cfg.symbols), args.swing_journal_db)
         tasks = [asyncio.create_task(c) for c in coros]
         waiter = asyncio.create_task(stop.wait())
         done, _ = await asyncio.wait([waiter, *tasks], return_when=asyncio.FIRST_COMPLETED)

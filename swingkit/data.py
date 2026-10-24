@@ -96,6 +96,20 @@ def to_series(candles: list[Candle]) -> Series:
     return Series.from_candles(candles)
 
 
+async def fetch_forming(client: BinanceClient, symbol: str, interval: str, market: str = "futures",
+                        now_ms: int | None = None) -> Candle | None:
+    """The candle that is still FORMING, reduced to its open price (all that is known), or None if there isn't one yet
+    (right at a boundary). A forming candle may fill a pending order at its open; nothing else is ever decided on it."""
+    bar, venue_path = INTERVAL_MS[interval], MARKETS[market]
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    rows = await client.get(venue_path[0], venue_path[1], {"symbol": symbol, "interval": interval, "limit": 1},
+                            timeout=15.0)
+    if not rows:
+        return None
+    k = parse_klines(rows[-1:])[0]
+    return None if k.ts + bar <= now_ms else Candle(k.ts, k.open, k.open, k.open, k.open, 0.0)
+
+
 # ---- funding rates (USD-M futures only): who pays whom every 8 hours -----------------------------
 FUNDING_PAGE = 1000
 

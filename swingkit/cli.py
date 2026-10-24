@@ -4,6 +4,7 @@ Everything here is paper / research. Nothing places an order."""
 import argparse
 import asyncio
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -18,6 +19,7 @@ from .data import (DAY_MS, INTERVAL_MS, cache_path, funding_path, load_csv, load
                    load_history, to_series)
 from .journal import Journal, format_stats, format_trades
 from .models import Series
+from .paper import SwingRunner, add_paper_args, paper_cfg_from
 from .risk import HARD_MAX_RISK_PCT, RiskCfg
 from .strategies import REGISTRY, make
 
@@ -90,6 +92,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_data_args(s)
     s.add_argument("--set", action="append", dest="params", metavar="STRATEGY.PARAM=VALUE")
     s.add_argument("--no-short", action="store_true")
+
+    r = sub.add_parser("run", help="paper-trade the strategies live: journal + Telegram alerts (no commands; use "
+                                   "`run.py --swing` for /setups /journal /swing)")
+    add_paper_args(r)
+    r.add_argument("--once", action="store_true", help="refresh once, print the status and the setups, and exit")
 
     j = sub.add_parser("journal", help="read, annotate and export the trading journal")
     j.add_argument("--db", default="data/swing-journal.db")
@@ -246,8 +253,49 @@ def _journal(args) -> int:
     return 0
 
 
+async def _run_paper(args) -> int:
+    from arbbot.alerts import Notifier
+    from arbbot.config import AlertsCfg
+    from arbbot.main import ROOT, load_dotenv
+    try:
+        cfg = paper_cfg_from(args)
+    except ValueError as e:
+        print(f"Refused: {e}", file=sys.stderr)
+        return 2
+    load_dotenv(ROOT / ".env")
+    journal = Journal(args.journal_db)
+    async with aiohttp.ClientSession() as session:
+        client = BinanceClient(session, "mainnet", timeout_s=20.0)
+        notifier = Notifier(AlertsCfg(), os.environ.get("TELEGRAM_BOT_TOKEN", ""), os.environ.get("TELEGRAM_CHAT_ID", ""),
+                            "SWING", session)
+
+        def notify(text: str) -> None:
+            print(text, flush=True)
+            notifier.send(text)
+
+        runner = SwingRunner(cfg, client, journal, notify=notify)
+        if args.once:
+            await runner.refresh()
+            print(runner.status_text() + "\n\n" + runner.setups_text())
+            return 0
+        print(f"Paper-trading {'+'.join(cfg.strategies)} on {cfg.interval} candles of {', '.join(cfg.symbols)}; "
+              f"Telegram alerts {'ON' if notifier.enabled else 'off'}. Ctrl-C stops it.", flush=True)
+        task = asyncio.create_task(notifier.run())
+        try:
+            await runner.run()
+        finally:
+            task.cancel()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.cmd == "run":
+        try:
+            return asyncio.run(_run_paper(args))
+        except KeyboardInterrupt:
+            print("Stopped.")
+            return 0
     if args.cmd == "download":
         data = asyncio.run(_load_all(args))
         print(f"Cached {len(data)} symbol(s) in {args.cache_dir}")

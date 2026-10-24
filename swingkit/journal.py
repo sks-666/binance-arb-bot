@@ -29,6 +29,20 @@ class Journal:
             "symbol TEXT NOT NULL, side TEXT NOT NULL, status TEXT NOT NULL, timeframe TEXT, opened_at INTEGER, "
             "closed_at INTEGER, entry REAL, stop REAL, target REAL, qty REAL, risk_usd REAL, exit REAL, "
             "pnl_usd REAL, fees_usd REAL, r_multiple REAL, reason_in TEXT, reason_out TEXT, notes TEXT DEFAULT '')")
+        self.db.execute("CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+
+    # ---- small key/value store (paper trading start date, alerts already sent) ------------------
+    def get_state(self, key: str, default: str | None = None) -> str | None:
+        row = self.db.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+
+    def set_state(self, key: str, value: str) -> None:
+        self.db.execute("INSERT OR REPLACE INTO state(key, value) VALUES (?, ?)", (key, value))
+
+    def find(self, *, run_id: str, strategy: str, symbol: str, opened_at: int) -> dict | None:
+        row = self.db.execute("SELECT * FROM journal WHERE run_id = ? AND strategy = ? AND symbol = ? AND opened_at = ?",
+                              (run_id, strategy, symbol, opened_at)).fetchone()
+        return dict(row) if row else None
 
     # ---- writing -------------------------------------------------------------------------------
     def open_trade(self, *, mode: str, strategy: str, symbol: str, side: str, timeframe: str, opened_at: int,

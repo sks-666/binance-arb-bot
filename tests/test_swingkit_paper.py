@@ -1,0 +1,234 @@
+"""Live paper trading: the backtester's live mode, the runner (against a mock Binance), and the Telegram commands."""
+import argparse
+import asyncio
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+import aiohttp
+
+from arbbot.binance_client import BinanceClient
+from arbbot.commands import CommandHandler
+from swingkit.backtest import CostCfg, run_backtest
+from swingkit.cli import main as swing_main
+from swingkit.journal import Journal
+from swingkit.models import Candle, Setup
+from swingkit.paper import PaperCfg, SwingRunner, add_paper_args, paper_cfg_from
+from swingkit.risk import RiskCfg
+from swingkit.strategies import Strategy
+from tests.test_swingkit import H4, QUIET, Scripted, series_from, setup
+from tests.test_swingkit_io import BAR, T0, MockBinance, candle
+
+
+class AtTimes(Strategy):
+    """Fires on specific candle open-times, whatever index the history window happens to give them."""
+    name = "scripted"
+
+    def __init__(self, signals: dict[int, dict] | None = None, **_):
+        super().__init__()
+        self.signals, self.s = signals or {}, None
+
+    def prepare(self, s):
+        self.s = s
+
+    def manage(self, side, i, entry_i, stop):
+        return stop, False, ""
+
+    def entry(self, i):
+        sig = self.signals.get(self.s.ts[i])
+        return (Setup("scripted", sig["side"], i, self.s.c[i], sig["stop"], sig.get("target"), "scripted test setup")
+                if sig else None)
+
+
+class LiveModeTests(unittest.TestCase):
+    def live(self, rows, setups, **kw):
+        s = series_from(rows)
+        return run_backtest({"AAAUSDT": s}, lambda: Scripted(setups), RiskCfg(), CostCfg(0, 0, 0), 10_000.0, H4,
+                            close_at_end=False, **kw), s
+
+    def test_open_positions_are_reported_not_closed_and_a_last_candle_setup_is_pending(self):
+        res, _ = self.live(QUIET + [(100, 101, 99, 101)], {1: setup(1)})
+        self.assertEqual(res.trades, [])
+        p = res.open_positions[0]
+        self.assertEqual((p["symbol"], p["side"], p["entry_px"], p["stop"], p["mark"]), ("AAAUSDT", "long", 100.0, 95.0, 101.0))
+        self.assertAlmostEqual(p["unrealised_usd"], 20.0)          # 20 units x 1.0, no costs here
+        self.assertAlmostEqual(p["unrealised_r"], 0.2)
+        res, _ = self.live(QUIET, {2: setup(2)})                    # decided on the very last candle
+        self.assertEqual(list(res.pending), ["AAAUSDT"])
+        self.assertEqual(res.open_positions, [])
+
+    def test_a_forming_candle_fills_at_its_open_but_nothing_is_decided_on_it(self):
+        rows = QUIET + [(103, 150, 50, 120)]                        # the last candle's high/low/close are not known yet
+        res, _ = self.live(rows, {2: setup(2), 3: setup(3)}, partial_last=True)
+        p = res.open_positions[0]
+        self.assertEqual(p["entry_px"], 103.0)                       # the order decided at candle 2's close fills at 3's open
+        self.assertEqual(p["mark"], 103.0)                           # and is marked at that open, not at the unknown 120
+        self.assertEqual(res.trades, [])                             # the wild high/low did not trigger anything
+        self.assertEqual(res.pending, {})                            # and the signal "on" the forming candle was ignored
+
+    def test_a_forming_candle_that_gaps_through_the_stop_closes_at_its_open(self):
+        rows = QUIET + [(100, 101, 99, 100), (90, 90, 90, 90)]
+        res, _ = self.live(rows, {1: setup(1)}, partial_last=True)
+        self.assertEqual([(t.reason_out, t.exit_px) for t in res.trades], [("stop", 90.0)])
+
+    def test_partial_applies_only_to_the_listed_coins(self):
+        s = series_from(QUIET + [(103, 125, 100, 120)])
+        res = run_backtest({"A": s, "B": s}, lambda: Scripted({1: setup(1)}), RiskCfg(max_open=5, max_heat_pct=5.0),
+                           CostCfg(0, 0, 0), 10_000.0, H4, close_at_end=False, partial_last={"A"})
+        marks = {p["symbol"]: p["mark"] for p in res.open_positions}
+        self.assertEqual(marks["A"], 103.0)                          # forming: marked at its open
+        self.assertEqual(marks["B"], 120.0)                          # closed: the real close
+
+    def test_nothing_is_entered_before_the_start_time(self):
+        rows = QUIET * 3
+        s = series_from(rows)
+        res, _ = self.live(rows, {1: setup(1), 4: setup(4)}, start_ts=s.ts[3])
+        self.assertEqual([p["entry_ts"] for p in res.open_positions], [s.ts[5]])   # the candle-1 idea is ignored
+
+
+def one_bar_clock(k: int, frac: float = 0.5):
+    return lambda: (T0 + (k + frac) * BAR) / 1000.0
+
+
+class RunnerTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.api = MockBinance(2001)                                   # candles 0..2000
+        await self.api.start()
+        self.session = aiohttp.ClientSession()
+        self.client = BinanceClient(self.session, timeout_s=5.0)
+        self.client.hosts = {"fapi": self.api.base, "spot": self.api.base}
+        self.tmp = Path(tempfile.mkdtemp())
+        self.journal = Journal(self.tmp / "j.db")
+        self.sent: list[str] = []
+        self.cfg = PaperCfg(symbols=["BTCUSDT"], strategies=["trend"], cache_dir=str(self.tmp / "klines"))
+        sig_ts = T0 + 2000 * BAR                                       # the idea is decided at the close of candle 2000
+        self.patch = mock.patch("swingkit.paper.make", lambda name, **kw: AtTimes({sig_ts: dict(side="long", stop=110.0)}))
+        self.patch.start()
+
+    async def asyncTearDown(self):
+        self.patch.stop()
+        await self.session.close()
+        await self.api.stop()
+
+    def runner(self, k, frac=0.5):
+        return SwingRunner(self.cfg, self.client, self.journal, self.sent.append, clock=one_bar_clock(k, frac))
+
+    async def test_a_signal_becomes_a_journal_entry_then_an_exit_and_is_reported_exactly_once(self):
+        r = self.runner(2000)                                          # candle 2000 is forming: paper trading starts now
+        await r.refresh()
+        self.assertEqual((self.sent, r.results["trend"].open_positions), ([], []))
+        self.assertIn("No setups waiting", r.setups_text())
+
+        self.api.candles.append(candle(2001))                          # candle 2000 closes, candle 2001 opens
+        r = self.runner(2001)                                          # (a fresh runner: the start time is remembered)
+        self.assertEqual(r.start_ts, int(one_bar_clock(2000)() * 1000))
+        await r.refresh()
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("SWING PAPER ENTRY [trend] BTCUSDT LONG", self.sent[0])
+        self.assertIn("why: scripted test setup", self.sent[0])
+        row = self.journal.trades(mode="paper")[0]
+        self.assertEqual((row["status"], row["strategy"], row["symbol"], row["run_id"]),
+                         ("open", "trend", "BTCUSDT", "paper-trend-4h"))
+        self.assertAlmostEqual(row["entry"], candle(2001).open * 1.0003)       # the open of candle 2001 + 3 bps slippage
+        self.assertEqual(row["stop"], 110.0)
+        self.assertAlmostEqual(row["risk_usd"], 100.0, delta=1.0)               # 1% of 10,000
+
+        await r.refresh()
+        await self.runner(2001).refresh()                                      # again, and from a "restarted" runner
+        self.assertEqual(len(self.sent), 1)                                    # no duplicate alert...
+        self.assertEqual(len(self.journal.trades(mode="paper")), 1)           # ...and no duplicate trade
+        self.assertIn("1 open", r.status_text())
+
+        self.api.candles += [candle(2002), candle(2003), candle(2004)]
+        self.api.candles[2003] = Candle(candle(2003).ts, 120.0, 121.0, 100.0, 105.0, 1.0)   # dives through the stop
+        r = self.runner(2004)
+        await r.refresh()
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn("SWING PAPER EXIT [trend] BTCUSDT LONG", self.sent[1])
+        self.assertIn("stop", self.sent[1])
+        row = self.journal.trades(mode="paper")[0]
+        self.assertEqual((row["status"], row["reason_out"]), ("closed", "stop"))
+        self.assertLess(row["pnl_usd"], 0)
+        self.assertAlmostEqual(row["r_multiple"], -1.0, delta=0.4)             # about one R, plus fees/slippage/gap
+        self.assertEqual(self.journal.stats(mode="paper")["closed"], 1)
+        self.assertIn("1 closed", r.status_text())
+
+    async def test_a_setup_decided_before_the_next_candle_exists_is_announced_once(self):
+        await self.runner(2000).refresh()
+        # the clock has just passed the close of candle 2000, but the exchange has not published candle 2001 yet
+        r = SwingRunner(self.cfg, self.client, self.journal, self.sent.append,
+                        clock=lambda: (T0 + 2001 * BAR + 1_000) / 1000.0)
+        await r.refresh()
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("SWING SETUP [trend] BTCUSDT LONG: paper entry at the next 4h open", self.sent[0])
+        self.assertIn("BTCUSDT LONG", r.setups_text())
+        await r.refresh()
+        self.assertEqual(len(self.sent), 1)                                    # not announced again
+        self.assertEqual(self.journal.trades(mode="paper"), [])                # nothing is a trade until it fills
+
+    async def test_a_failing_refresh_is_survivable(self):
+        r = self.runner(2000)
+        with mock.patch.object(self.client, "get", side_effect=aiohttp.ClientConnectionError("down")):
+            with self.assertRaises(asyncio.TimeoutError):                      # run() keeps looping; it never raises
+                await asyncio.wait_for(r.run(), 0.5)
+        self.assertIn("ClientConnectionError", r.last_error)
+        self.assertIn("failed", r.status_text())
+        self.assertIn("still loading", self.runner(2000).setups_text().lower())
+
+    async def test_telegram_commands_read_the_runner(self):
+        from tests.test_commands import build, warm
+        eng = build()
+        await warm(eng)
+        h = CommandHandler(eng, "T")
+        self.assertIn("isn't running", h.answer("/setups"))
+        self.assertIn("isn't running", h.answer("/journal"))
+        h.swing = self.runner(2000)
+        self.assertIn("still loading", h.answer("/swing").lower())
+        await h.swing.refresh()
+        self.api.candles.append(candle(2001))
+        h.swing = self.runner(2001)
+        await h.swing.refresh()
+        self.assertIn("trend:", h.answer("/swing"))
+        self.assertIn("1 open", h.answer("/swing"))
+        self.assertIn("BTCUSDT LONG in", h.answer("/swing"))
+        j = h.answer("/journal 3")
+        self.assertIn("1 open", j)
+        self.assertIn("why: scripted test setup", j)
+        self.assertIn("No setups waiting", h.answer("/setups"))              # it already filled, so nothing is waiting
+        self.assertIn("paper", h.answer("/setups").lower())
+
+
+class ConfigTests(unittest.TestCase):
+    def test_config_validation(self):
+        PaperCfg()                                                         # the defaults are valid
+        for bad in (dict(risk_pct=3.0), dict(interval="7m"), dict(strategies=["nope"]), dict(symbols=["btc/usdt"]),
+                    dict(poll_s=5), dict(capital=0), dict(market="options"), dict(params={"trend": {"fats": 1}})):
+            with self.assertRaises(ValueError, msg=str(bad)):
+                PaperCfg(**bad)
+
+    def test_arguments_for_both_entry_points(self):
+        for prefix in ("", "swing-"):
+            p = argparse.ArgumentParser()
+            add_paper_args(p, prefix)
+            ns = p.parse_args([f"--{prefix}symbols", "btcusdt,ethusdt", f"--{prefix}strategies", "trend,smc",
+                               f"--{prefix}risk-pct", "1.5", f"--{prefix}no-short", f"--{prefix}interval", "1d"])
+            cfg = paper_cfg_from(ns, prefix)
+            self.assertEqual((cfg.symbols, cfg.strategies, cfg.risk_pct, cfg.allow_short, cfg.interval),
+                             (["BTCUSDT", "ETHUSDT"], ["trend", "smc"], 1.5, False, "1d"))
+            ns = p.parse_args([f"--{prefix}risk-pct", "2.5"])
+            with self.assertRaises(ValueError):
+                paper_cfg_from(ns, prefix)
+
+    def test_the_main_bot_offers_the_swing_options_and_the_cli_refuses_bad_ones(self):
+        from arbbot.main import parse_args
+        a = parse_args(["--swing", "--swing-symbols", "BTCUSDT", "--swing-interval", "1d"])
+        self.assertTrue(a.swing)
+        self.assertEqual((a.swing_symbols, a.swing_interval, a.swing_risk_pct), ("BTCUSDT", "1d", 1.0))
+        self.assertFalse(parse_args([]).swing)
+        self.assertEqual(swing_main(["run", "--risk-pct", "3"]), 2)
+        self.assertEqual(swing_main(["run", "--strategies", "nope"]), 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

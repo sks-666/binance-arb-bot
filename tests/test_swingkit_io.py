@@ -54,7 +54,9 @@ class MockBinance:
         self.requests.append({"path": request.path, **dict(q)})
         lo, hi, limit = int(q.get("startTime", 0)), int(q.get("endTime", 1 << 62)), int(q.get("limit", 500))
         rows = [[k.ts, str(k.open), str(k.high), str(k.low), str(k.close), str(k.volume), k.ts + BAR - 1, "0", 0, "0", "0", "0"]
-                for k in self.candles if lo <= k.ts <= hi][:limit]
+                for k in self.candles if lo <= k.ts <= hi]
+        # like the real API: without a start or end time you get the LATEST candles, otherwise the first ones from startTime
+        rows = rows[-limit:] if ("startTime" not in q and "endTime" not in q) else rows[:limit]
         return web.json_response(rows)
 
     async def stop(self):

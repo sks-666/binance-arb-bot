@@ -82,13 +82,24 @@ class Result:
     skipped: Counter = field(default_factory=Counter)
     first_ts: int = 0
     last_ts: int = 0
+    open_positions: list[dict] = field(default_factory=list)   # live mode only: still open, not force-closed
+    pending: dict = field(default_factory=dict)                # live mode only: decided at the last close, not yet filled
 
 
 def run_backtest(data: dict[str, Series], make_strategy: Callable[[], Strategy], risk: RiskCfg | None = None,
                  costs: CostCfg | None = None, capital: float = 10_000.0, bar_ms: int = 14_400_000,
-                 funding: dict[str, list[tuple[int, float]]] | None = None) -> Result:
+                 funding: dict[str, list[tuple[int, float]]] | None = None, close_at_end: bool = True,
+                 start_ts: int = 0, partial_last: bool | set[str] = False) -> Result:
     """`funding`: real funding events per symbol, [(time ms, rate)]; a positive rate means longs pay shorts, and a short
-    RECEIVES it. A symbol without events falls back to the flat `costs.funding_bps_8h` charge."""
+    RECEIVES it. A symbol without events falls back to the flat `costs.funding_bps_8h` charge.
+
+    Live mode (paper trading replays the real candles with exactly these rules):
+      close_at_end=False  positions still open at the end are reported in `open_positions`, not closed, and a setup decided
+                          on the very last candle is reported in `pending`;
+      start_ts            no entries before this time (older candles only warm the indicators up);
+      partial_last        the final candle is still FORMING (True for every coin, or the set of coins it applies to): only
+                          its open is known, so it can fill orders and trigger a stop that gapped, nothing more (no
+                          decision is ever taken on an unfinished candle)."""
     risk, costs = risk or RiskCfg(), costs or CostCfg()
     fund_ts = {sym: [t for t, _ in ev] for sym, ev in (funding or {}).items()}
     fee, slip = costs.fee_bps / 1e4, costs.slippage_bps / 1e4
@@ -133,6 +144,10 @@ def run_backtest(data: dict[str, Series], make_strategy: Callable[[], Strategy],
             if i is None:
                 continue
             o, h, l, c = s.o[i], s.h[i], s.l[i], s.c[i]
+            partial = i == len(s) - 1 and (sym in partial_last if isinstance(partial_last, (set, frozenset))
+                                           else bool(partial_last))
+            if partial:
+                h = l = c = o                      # all we know of a forming candle
             strat = strategies[sym]
 
             # 1. an order decided at the previous close fills at this open
@@ -179,6 +194,8 @@ def run_backtest(data: dict[str, Series], make_strategy: Callable[[], Strategy],
                         close(p, min(o, p.target), ts, i, "target")
                 p = pos.get(sym)
             last_close[sym] = c
+            if partial:
+                continue                           # nothing is decided on a candle that has not closed
             # 4. at the close: funding, trailing stop, strategy exit
             if p is not None:
                 if sym in fund_ts:   # real funding paid at the instants this position was held during the candle
@@ -193,7 +210,7 @@ def run_backtest(data: dict[str, Series], make_strategy: Callable[[], Strategy],
                 if exit_now:
                     p.exit_next = why
             # 5. a new idea, to be filled at the next open
-            if sym not in pos and i + 1 < len(s):
+            if sym not in pos and ts >= start_ts and (i + 1 < len(s) or not close_at_end):
                 setup = strat.entry(i)
                 if setup is not None:
                     pending[sym] = setup
@@ -202,6 +219,16 @@ def run_backtest(data: dict[str, Series], make_strategy: Callable[[], Strategy],
         breaker.update(eq)
         res.equity.append((ts, eq))
 
+    if not close_at_end:
+        res.pending = dict(pending)
+        for p in pos.values():
+            mark = last_close[p.symbol]
+            net = p.sgn * (mark - p.entry_px) * p.qty - p.entry_fee - p.funding
+            res.open_positions.append(dict(
+                strategy=name, symbol=p.symbol, side=p.side, entry_ts=p.entry_ts, entry_px=p.entry_px, stop=p.stop,
+                stop0=p.stop0, target=p.target, qty=p.qty, risk_usd=p.risk_usd, reason_in=p.reason_in, mark=mark,
+                unrealised_usd=net, unrealised_r=net / p.risk_usd if p.risk_usd else 0.0))
+        return res
     for p in list(pos.values()):
         i = where[p.symbol].get(timeline[-1], len(data[p.symbol]) - 1)
         close(p, last_close[p.symbol] * (1 - p.sgn * slip), timeline[-1], i, "end of data")

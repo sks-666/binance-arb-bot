@@ -152,6 +152,32 @@ the end are closed and marked "end of data". The report always shows what simply
 **Journal.** `data/swing-journal.db` records every trade with the reason it was taken, stop, target, result in R, how it
 ended and your own notes; backtest runs (`--journal`) and paper trades live in the same table, tagged by mode.
 
+### Paper trading live (forward testing)
+
+A backtest only tells you about the past. To see whether the same rules hold up on candles that have not happened yet, run them
+live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 each, and risks 1% per trade:
+
+```bash
+.venv/bin/python swing.py run                       # alerts to Telegram + the journal; Ctrl-C stops it
+.venv/bin/python swing.py run --once                # one refresh, print the status and any setups, and exit
+.venv/bin/python run.py --swing                     # the arbitrage bot AND the swing paper accounts in one process
+                                                    #   (adds the /setups /swing /journal Telegram commands)
+```
+
+* **No second engine.** Every poll (2 minutes) the runner replays the real candles from the day paper trading started
+  through the *same backtester*, in its live mode, so forward results follow exactly the rules that were backtested. A
+  decision is only ever taken on a **closed** candle; the still-forming candle may fill a waiting order at its open (and
+  catch a stop that gapped), nothing more.
+* **Reported once.** New entries and exits are written to the journal (`mode = paper`) and sent to Telegram, and a setup is
+  announced the moment it is decided ("paper entry at the next 4h open"). The journal remembers what was reported, so
+  restarting the bot never duplicates a trade or an alert.
+* **Telegram (with `run.py --swing`, because only one program may read a bot's messages):** `/setups` setups waiting for
+  the next open, `/swing` the three accounts with equity and open trades, `/journal [n]` the paper stats and the last *n*
+  trades with the reason for each. `swing.py run` on its own sends alerts but cannot answer commands.
+* **Run only one of the two at a time.** Both write the same journal; they would agree, but you would get every alert twice.
+* **It is paper only and separate from the arbitrage book.** If the candle download fails the runner logs it and retries
+  (30 s, doubling to 15 min); it can never stop the arbitrage bot that shares the process.
+
 ### What the first real backtest said (2 years of 4h candles, BTC ETH SOL BNB XRP, run on 2026-10-24)
 
 | Strategy | Trades | Win % | Expectancy | Profit factor | Return | Max drawdown |
@@ -198,7 +224,7 @@ portfolio.py  positions + SQLite persistence (data/<mode>-<env>-<feed>.db)
 server.py     aiohttp dashboard + WebSocket snapshots + guarded controls
 alerts.py     Telegram notifier (queued, rate-limited, token-safe)
 swingkit/     (separate toolkit, see its section) data.py candles + funding | strategies.py trend/swing/smc |
-              risk.py 1-2% sizing + drawdown pause | backtest.py | journal.py | cli.py  <- swing.py
+              risk.py 1-2% sizing + drawdown pause | backtest.py | journal.py | paper.py live paper runner | cli.py  <- swing.py
 ```
 
 `1000SHIB`-style perps are mapped onto the unscaled spot symbol with a price multiplier.
@@ -244,6 +270,7 @@ Type in plain words or use the `/` menu (registered automatically):
 | `/positions` · `/pnl` · `/top 10` | Open positions (one summary each) · profit/loss and last trades · best markets by edge |
 | `/positions BTC` (or "show me the BTC position") | **Full detail of one open trade:** AUTO or MANUAL, size, the spot and perp quantities and prices paid, time held, entry basis, fees paid, funding earned, the model's z and expected net at entry, the unwind basis now, P&L if closed now, and the exit rules with how far each is (convergence z, timeout countdown, P&L stop, basis stop) |
 | `/pause` · `/resume` | Stop / allow new entries |
+| `/setups` · `/swing` · `/journal [n]` | The swing / trend / SMC paper accounts (only with `run.py --swing`; see the swingkit section) |
 | `/open BTC 200` → `/confirm` · `/cancel` | A custom **paper** trade (see below) |
 | `/close BTC` | Close an open paper position now |
 
