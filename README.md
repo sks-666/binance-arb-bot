@@ -174,6 +174,12 @@ live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 e
 * **Telegram (with `run.py --swing`, because only one program may read a bot's messages):** `/setups` setups waiting for
   the next open, `/swing` the three accounts with equity and open trades, `/journal [n]` the paper stats and the last *n*
   trades with the reason for each. `swing.py run` on its own sends alerts but cannot answer commands.
+* **On the dashboard.** With `run.py --swing` the web dashboard (local, and the hosted read-only copies once they are
+  redeployed) gets a full-width **"Swing paper accounts"** panel: the three accounts (equity, return, open and closed
+  trades, win count, average R), the open swing positions with entry, current price, stop, target and P&L in dollars and R,
+  the setups waiting for the next candle open with the reason, and the last ten closed trades. Without `--swing` the panel
+  says so instead of showing zeros. The data is the same sanitised snapshot (no keys, no controls); after changing
+  `web/index.html` rebuild the hosted page with `scripts/build_hosted_dashboard.py` (a test fails if it is out of date).
 * **Run only one of the two at a time.** Both write the same journal; they would agree, but you would get every alert twice.
 * **It is paper only and separate from the arbitrage book.** If the candle download fails the runner logs it and retries
   (30 s, doubling to 15 min); it can never stop the arbitrage bot that shares the process.

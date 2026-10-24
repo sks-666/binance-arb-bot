@@ -17,7 +17,7 @@ from .config import PublisherCfg
 
 log = logging.getLogger("publisher")
 SCHEMA = 1
-KEEP = ("ts", "mode", "env", "feed", "halt", "stats", "model", "markets", "positions", "trades", "events")
+KEEP = ("ts", "mode", "env", "feed", "halt", "stats", "model", "markets", "positions", "trades", "events", "swing")
 
 
 def _round(obj, nd: int = 4):

@@ -234,7 +234,7 @@ async def amain(args: argparse.Namespace) -> None:
                 sys.exit("--swing needs the swingkit/ folder next to arbbot/.")
             except ValueError as e:
                 sys.exit(f"--swing: {e}")
-            handler.swing = swing
+            handler.swing = engine.swing = swing
         listener = TelegramListener(cfg.alerts, alerts, handler, poll_timeout_s=cfg.alerts.poll_timeout_s)
         dash = Dashboard(engine, cfg, ROOT / "web")
         if args.hosted:  # public interface: the READ-ONLY page behind a login, never the dashboard with its controls

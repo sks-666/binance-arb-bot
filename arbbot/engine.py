@@ -43,6 +43,7 @@ class Engine:
         self.flatten_requested = False
         self.started = time.time()
         self.clock = time.time                  # wall clock for manual trades; replaceable so tests can use simulated time
+        self.swing = None                       # a swingkit SwingRunner (paper), shown on the dashboard when present
         self._update_buffer()
 
     def _update_buffer(self) -> None:
@@ -453,4 +454,5 @@ class Engine:
             "positions": positions,
             "trades": trades,
             "events": list(self.events)[-60:][::-1],
+            "swing": self.swing.snapshot() if self.swing is not None else None,
         }

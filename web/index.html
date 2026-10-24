@@ -78,6 +78,14 @@
   .ev.error { color: var(--neg); } .ev.win { color: var(--pos); } .ev.loss { color: var(--warn); } .ev.entry { color: var(--accent); }
   footer { margin-top: 14px; color: var(--muted); font-size: 12px; line-height: 1.6; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .sw-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 0 14px 14px; align-items: start; }
+  .sw-grid h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+  .sw-grid .tbl { border: 1px solid var(--line); border-radius: 10px; }
+  .sw-note { padding: 0 14px 12px; color: var(--muted); font-size: 12px; }
+  #sw-accts { padding: 14px 14px 0; margin-bottom: 14px; }
+  td.why { white-space: normal; min-width: 240px; text-align: left; color: var(--muted); font-size: 12.5px; }
+  th.why { text-align: left; }
+  .side-long { color: var(--pos); font-weight: 650; } .side-short { color: var(--neg); font-weight: 650; }
   @media (max-width: 640px) { .wrap { padding: 12px 16px; } .kpi .v { font-size: 18px; } }
 </style>
 </head>
@@ -134,6 +142,20 @@
       </section>
     </div>
   </div>
+
+  <section class="card" id="sw-card" aria-labelledby="h-swing" style="margin-top:14px">
+    <div class="card-h"><h2 id="h-swing">Swing paper accounts · trend · swing · SMC</h2><span class="hint" id="sw-hint"></span></div>
+    <div id="sw-off" class="empty" hidden>The swing toolkit is not running in this bot. Start it with <code>--swing</code> to paper-trade the trend, swing and Smart Money strategies.</div>
+    <div id="sw-on" hidden>
+      <div class="kpis" id="sw-accts"></div>
+      <div class="sw-grid">
+        <div><h3>Open swing positions</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Entry</th><th>Now</th><th>Stop</th><th>Target</th><th>P&amp;L</th></tr></thead><tbody id="sw-open"></tbody></table></div></div>
+        <div><h3>Waiting for the next candle open</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Near</th><th>Stop</th><th>Target</th><th class="why">Why</th></tr></thead><tbody id="sw-setups"></tbody></table></div></div>
+        <div><h3>Recent swing trades</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>In → out</th><th>P&amp;L</th><th>R</th><th>Out</th></tr></thead><tbody id="sw-trades"></tbody></table></div></div>
+      </div>
+      <div class="sw-note" id="sw-note"></div>
+    </div>
+  </section>
 
   <footer id="foot"></footer>
 </div>
@@ -199,6 +221,31 @@ function renderMarkets() {
   }).join("");
 }
 
+function renderSwing() {
+  const w = snap.swing, off = $("sw-off"), on = $("sw-on");
+  if (!w) { off.hidden = false; on.hidden = true; $("sw-hint").textContent = ""; return; }
+  off.hidden = true; on.hidden = false;
+  const coin = s => esc(s.replace(/USDT$/, "")), px = v => v == null ? "–" : price(v);
+  const side = s => `<span class="side-${esc(s)}">${esc(s.toUpperCase())}</span>`;
+  const usd = v => "$" + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  $("sw-hint").textContent = w.loading ? "loading the first candles…"
+    : `${w.interval} · ${w.symbols.map(s => s.replace(/USDT$/, "")).join(" ")} · since ${new Date(w.start_ts).toISOString().slice(0, 16).replace("T", " ")} UTC · checked ${w.checked_age_s == null ? "–" : dur(w.checked_age_s) + " ago"}`;
+  $("sw-accts").innerHTML = w.accounts.length ? w.accounts.map(a =>
+    `<div class="kpi"><div class="l">${esc(a.strategy)}</div><div class="v">${usd(a.equity)}</div>` +
+    `<div class="s"><span class="${cls(a.return_pct)}">${sg(a.return_pct, 2)}%</span> · ${a.open} open · ${a.closed} closed${a.closed ? ` · ${a.wins}W · ${sg(a.avg_r, 2)}R avg` : ""}</div></div>`
+  ).join("") : `<div class="empty">Loading the first candles…</div>`;
+  $("sw-open").innerHTML = w.open.length ? w.open.map(p =>
+    `<tr title="${esc(p.reason)}"><td class="sym">${esc(p.strategy)}</td><td class="sym">${coin(p.symbol)}</td><td>${side(p.side)}</td><td class="n">${px(p.entry)}</td><td class="n">${px(p.mark)}</td><td class="n">${px(p.stop)}</td><td class="n">${px(p.target)}</td><td class="n ${cls(p.pnl)}">${money(p.pnl)} (${sg(p.r, 2)}R)</td></tr>`
+  ).join("") : `<tr><td colspan="8" class="empty">No open swing positions.</td></tr>`;
+  $("sw-setups").innerHTML = w.setups.length ? w.setups.map(s =>
+    `<tr><td class="sym">${esc(s.strategy)}</td><td class="sym">${coin(s.symbol)}</td><td>${side(s.side)}</td><td class="n">${px(s.near)}</td><td class="n">${px(s.stop)}</td><td class="n">${px(s.target)}</td><td class="why">${esc(s.reason)}</td></tr>`
+  ).join("") : `<tr><td colspan="7" class="empty">No setups waiting. That is the usual answer: these strategies wait for a pattern.</td></tr>`;
+  $("sw-trades").innerHTML = w.trades.length ? w.trades.map(t =>
+    `<tr title="${esc(new Date(t.closed_at).toISOString().slice(0, 16).replace("T", " "))} UTC"><td class="sym">${esc(t.strategy)}</td><td class="sym">${coin(t.symbol)}</td><td>${side(t.side)}</td><td class="n">${px(t.entry)} → ${px(t.exit)}</td><td class="n ${cls(t.pnl)}">${money(t.pnl)}</td><td class="n ${cls(t.r)}">${sg(t.r, 2)}R</td><td class="mut">${esc(t.reason)}</td></tr>`
+  ).join("") : `<tr><td colspan="7" class="empty">No closed swing trades yet.</td></tr>`;
+  $("sw-note").textContent = `Each account starts with $${w.capital.toLocaleString()} and risks ${w.risk_pct}% of its equity per trade. Paper only: nothing here places an order. They decide on closed ${w.interval} candles and fill at the next open, so most of the time they simply wait.` + (w.error ? ` The last refresh failed: ${w.error}` : "");
+}
+
 function renderAll() {
   const s = snap.stats, f = snap.feed, h = snap.halt, m = snap.model;
   const mode = $("b-mode");
@@ -239,6 +286,7 @@ function renderAll() {
   $("btn-flat").disabled = s.open === 0;
 
   renderMarkets();
+  renderSwing();
 
   $("pos-hint").textContent = s.open ? `${s.open} open` : "";
   $("pos-body").innerHTML = snap.positions.length ? snap.positions.map(p =>

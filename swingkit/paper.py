@@ -111,6 +111,7 @@ class SwingRunner:
         self.refreshes = 0
         self._funding: dict[str, list[tuple[int, float]]] = {}
         self._funding_at = 0.0
+        self._snap: dict | None = None                  # built once per refresh: the dashboard asks every second
 
     def run_id(self, name: str) -> str:
         return f"paper-{name}-{self.cfg.interval}"
@@ -138,6 +139,7 @@ class SwingRunner:
         results = await asyncio.to_thread(self._simulate, data, dict(self._funding), forming)
         messages = self._report(results)
         self.results, self.checked_at, self.last_error = results, now, ""
+        self._snap = self._build_snapshot()
         self.refreshes += 1
         for m in messages:
             self.notify(m)
@@ -208,6 +210,38 @@ class SwingRunner:
                 backoff = min(max(backoff * 2, 30.0), 900.0)
                 log.warning("swing refresh failed (%s); retrying in %.0fs", self.last_error, self.cfg.poll_s + backoff)
             await asyncio.sleep(self.cfg.poll_s + backoff)
+
+    # ---- data for the web dashboard ------------------------------------------------------------
+    def _meta(self) -> dict:
+        c = self.cfg
+        return dict(interval=c.interval, symbols=list(c.symbols), strategies=list(c.strategies), capital=c.capital,
+                    risk_pct=c.risk_pct, start_ts=self.start_ts, market=c.market)
+
+    def _build_snapshot(self) -> dict:
+        accounts, open_, setups = [], [], []
+        for name, res in self.results.items():
+            st = self.journal.stats(mode="paper", strategy=name)
+            equity = res.equity[-1][1] if res.equity else self.cfg.capital
+            accounts.append(dict(strategy=name, equity=equity, return_pct=(equity / self.cfg.capital - 1) * 100,
+                                 open=len(res.open_positions), closed=st["closed"], wins=st["wins"],
+                                 win_rate=st["win_rate"], avg_r=st["avg_r"], total_pnl=st["total_pnl"]))
+            open_ += [dict(strategy=name, symbol=p["symbol"], side=p["side"], entry=p["entry_px"], stop=p["stop"],
+                           target=p["target"], mark=p["mark"], pnl=p["unrealised_usd"], r=p["unrealised_r"],
+                           entry_ts=p["entry_ts"], reason=p["reason_in"]) for p in res.open_positions]
+            setups += [dict(strategy=name, symbol=sym, side=s.side, near=s.ref_price, stop=s.stop, target=s.target,
+                            reason=s.reason) for sym, s in res.pending.items()]
+        trades = [dict(id=t["id"], strategy=t["strategy"], symbol=t["symbol"], side=t["side"], entry=t["entry"],
+                       exit=t["exit"], pnl=t["pnl_usd"], r=t["r_multiple"], reason=t["reason_out"],
+                       opened_at=t["opened_at"], closed_at=t["closed_at"])
+                  for t in self.journal.trades(mode="paper", status="closed", limit=10)]
+        return dict(self._meta(), loading=False, accounts=accounts, open=open_, setups=setups, trades=trades)
+
+    def snapshot(self) -> dict:
+        """What the dashboard shows. Cheap: the heavy part is built once per refresh."""
+        base = self._snap if self._snap is not None else dict(self._meta(), loading=True, accounts=[], open=[],
+                                                              setups=[], trades=[])
+        return dict(base, error=self.last_error,
+                    checked_age_s=(self.clock() - self.checked_at) if self.checked_at else None)
 
     # ---- text for Telegram / console -----------------------------------------------------------
     def _loading(self) -> str | None:

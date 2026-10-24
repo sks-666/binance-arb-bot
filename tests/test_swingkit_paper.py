@@ -1,6 +1,7 @@
 """Live paper trading: the backtester's live mode, the runner (against a mock Binance), and the Telegram commands."""
 import argparse
 import asyncio
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -197,6 +198,106 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("why: scripted test setup", j)
         self.assertIn("No setups waiting", h.answer("/setups"))              # it already filled, so nothing is waiting
         self.assertIn("paper", h.answer("/setups").lower())
+
+
+    async def test_the_dashboard_snapshot_follows_the_accounts(self):
+        r = self.runner(2000)
+        s = r.snapshot()
+        self.assertEqual((s["loading"], s["accounts"], s["checked_age_s"]), (True, [], None))
+        await r.refresh()
+        s = r.snapshot()
+        self.assertEqual((s["loading"], s["interval"], s["symbols"], s["capital"], s["risk_pct"]),
+                         (False, "4h", ["BTCUSDT"], 10_000.0, 1.0))
+        acct = s["accounts"][0]
+        self.assertEqual((acct["strategy"], acct["equity"], acct["return_pct"], acct["open"], acct["closed"]),
+                         ("trend", 10_000.0, 0.0, 0, 0))
+        self.assertLess(s["checked_age_s"], 5)
+
+        self.api.candles.append(candle(2001))
+        r = self.runner(2001)
+        await r.refresh()
+        s = r.snapshot()
+        pos = s["open"][0]
+        self.assertEqual((pos["strategy"], pos["symbol"], pos["side"], pos["stop"]), ("trend", "BTCUSDT", "long", 110.0))
+        self.assertIsNone(pos["target"])
+        self.assertEqual(s["accounts"][0]["open"], 1)
+        self.assertEqual((s["setups"], s["trades"]), ([], []))
+
+        self.api.candles += [candle(2002), candle(2003), candle(2004)]
+        self.api.candles[2003] = Candle(candle(2003).ts, 120.0, 121.0, 100.0, 105.0, 1.0)
+        r = self.runner(2004)
+        await r.refresh()
+        s = r.snapshot()
+        self.assertEqual((s["open"], len(s["trades"])), ([], 1))
+        t = s["trades"][0]
+        self.assertEqual((t["strategy"], t["symbol"], t["side"], t["reason"]), ("trend", "BTCUSDT", "long", "stop"))
+        self.assertLess(t["pnl"], 0)
+        acct = s["accounts"][0]
+        self.assertEqual((acct["closed"], acct["wins"], acct["open"]), (1, 0, 0))
+        self.assertLess(acct["equity"], 10_000.0)
+        self.assertLess(acct["return_pct"], 0)
+
+        text = json.dumps(s)                                                  # must travel to the browser and to Upstash
+        for secret in ("token", "TOKEN", "password", "api_key"):
+            self.assertNotIn(secret, text)
+
+    async def test_a_failed_refresh_is_visible_on_the_dashboard(self):
+        r = self.runner(2000)
+        await r.refresh()
+        r.last_error = "ClientConnectionError: down"
+        self.assertEqual(r.snapshot()["error"], "ClientConnectionError: down")
+
+
+class DashboardPlumbingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_engine_and_published_snapshots_carry_the_swing_data(self):
+        from types import SimpleNamespace
+        from arbbot.publisher import public_snapshot
+        from tests.test_model import engine, warm
+        eng, m, pf, cfg = engine()
+        await warm(eng, m)
+        self.assertIsNone(eng.snapshot()["swing"])                              # off unless --swing
+        self.assertIsNone(public_snapshot(eng.snapshot())["swing"])
+        eng.swing = SimpleNamespace(snapshot=lambda: {"accounts": [{"strategy": "trend", "equity": 10_012.3456789,
+                                                                    "avg_r": float("nan")}], "setups": []})
+        live = eng.snapshot()["swing"]
+        self.assertEqual(live["accounts"][0]["strategy"], "trend")
+        pub = public_snapshot(eng.snapshot())["swing"]["accounts"][0]            # the hosted copy: rounded, NaN -> null
+        self.assertEqual((pub["equity"], pub["avg_r"]), (10_012.3457, None))
+
+
+class PageTests(unittest.TestCase):
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def pages(self):
+        return {"local": (self.ROOT / "web" / "index.html").read_text(encoding="utf-8"),
+                "hosted": (self.ROOT / "vercel-dashboard" / "views" / "dashboard.html").read_text(encoding="utf-8")}
+
+    def test_both_pages_have_the_swing_panel_and_the_hosted_one_has_no_controls(self):
+        for name, html in self.pages().items():
+            for needle in ("Swing paper accounts", "sw-card", "sw-accts", "sw-open", "sw-setups", "sw-trades",
+                           "renderSwing()", "snap.swing"):
+                self.assertIn(needle, html, f"{name} page is missing {needle}")
+        for forbidden in ("btn-pause", "btn-flat", "WebSocket(", "__TOKEN__", "/api/halt", "/api/flatten"):
+            self.assertNotIn(forbidden, self.pages()["hosted"])
+
+    def test_the_hosted_page_is_in_sync_with_the_local_one(self):
+        import subprocess, sys
+        before = self.pages()["hosted"]
+        subprocess.run([sys.executable, str(self.ROOT / "scripts" / "build_hosted_dashboard.py")], check=True,
+                       capture_output=True)
+        self.assertEqual(self.pages()["hosted"], before, "run scripts/build_hosted_dashboard.py and commit the result")
+
+    def test_the_inline_scripts_are_valid_javascript(self):
+        import re, shutil, subprocess
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        for name, html in self.pages().items():
+            js = re.search(r"<script>(.*?)</script>", html, re.S).group(1)
+            path = Path(tempfile.mkdtemp()) / f"{name}.js"
+            path.write_text(js, encoding="utf-8")
+            done = subprocess.run([node, "--check", str(path)], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, f"{name}: {done.stderr}")
 
 
 class ConfigTests(unittest.TestCase):
