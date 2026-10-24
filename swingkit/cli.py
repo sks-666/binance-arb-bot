@@ -19,7 +19,7 @@ from .data import (DAY_MS, INTERVAL_MS, cache_path, funding_path, load_csv, load
                    load_history, to_series)
 from .journal import Journal, format_stats, format_trades
 from .models import Series
-from .paper import SwingRunner, add_paper_args, paper_cfg_from
+from .paper import SwingRunner, add_paper_args, paper_cfg_from, resolve_spec
 from .risk import HARD_MAX_RISK_PCT, RiskCfg
 from .strategies import REGISTRY, make
 
@@ -257,15 +257,17 @@ async def _run_paper(args) -> int:
     from arbbot.alerts import Notifier
     from arbbot.config import AlertsCfg
     from arbbot.main import ROOT, load_dotenv
-    try:
-        cfg = paper_cfg_from(args)
-    except ValueError as e:
-        print(f"Refused: {e}", file=sys.stderr)
-        return 2
     load_dotenv(ROOT / ".env")
     journal = Journal(args.journal_db)
     async with aiohttp.ClientSession() as session:
         client = BinanceClient(session, "mainnet", timeout_s=20.0)
+        try:
+            symbols, auto = await resolve_spec(args.symbols, client)
+            cfg = paper_cfg_from(args, symbols=symbols, auto=auto)
+            runner = SwingRunner(cfg, client, journal)
+        except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as e:
+            print(f"Refused: {e}", file=sys.stderr)
+            return 2
         notifier = Notifier(AlertsCfg(), os.environ.get("TELEGRAM_BOT_TOKEN", ""), os.environ.get("TELEGRAM_CHAT_ID", ""),
                             "SWING", session)
 
@@ -273,12 +275,12 @@ async def _run_paper(args) -> int:
             print(text, flush=True)
             notifier.send(text)
 
-        runner = SwingRunner(cfg, client, journal, notify=notify)
+        runner.notify = notify
         if args.once:
             await runner.refresh()
             print(runner.status_text() + "\n\n" + runner.setups_text())
             return 0
-        print(f"Paper-trading {'+'.join(cfg.strategies)} on {cfg.interval} candles of {', '.join(cfg.symbols)}; "
+        print(f"Paper-trading {'+'.join(cfg.strategies)} on {cfg.interval} candles of {runner._coins()}; "
               f"Telegram alerts {'ON' if notifier.enabled else 'off'}. Ctrl-C stops it.", flush=True)
         task = asyncio.create_task(notifier.run())
         try:

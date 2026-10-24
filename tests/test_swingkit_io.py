@@ -9,7 +9,7 @@ from aiohttp import web
 from arbbot.binance_client import BinanceClient
 from swingkit.backtest import Trade
 from swingkit.data import (DAY_MS, INTERVAL_MS, cache_path, fetch_funding, fetch_range, funding_path, load_csv,
-                           load_funding, load_funding_csv, load_history, save_csv, save_funding)
+                           load_funding, load_funding_csv, load_history, save_csv, save_funding, top_futures_symbols)
 from swingkit.journal import COLUMNS, Journal, format_stats, format_trades
 from swingkit.models import Candle
 
@@ -39,11 +39,19 @@ class MockBinance:
                 for ts, rate in self.funding if lo <= ts <= hi][:limit]
         return web.json_response(rows)
 
+    tickers = [("BTCUSDT", 9e9), ("ETHUSDT", 5e9), ("SOLUSDT", 1e9), ("DOGEUSDT", 3e7), ("TINYUSDT", 1e6),
+               ("BTCUSDT_241227", 8e9), ("BTCUSDC", 7e9)]            # a dated future, a non-USDT quote and an illiquid coin
+
+    async def ticker(self, request):
+        self.requests.append({"path": request.path})
+        return web.json_response([{"symbol": s, "quoteVolume": repr(v)} for s, v in self.tickers])
+
     async def start(self):
         app = web.Application()
         app.router.add_get("/fapi/v1/klines", self.klines)
         app.router.add_get("/api/v3/klines", self.klines)
         app.router.add_get("/fapi/v1/fundingRate", self.funding_rate)
+        app.router.add_get("/fapi/v1/ticker/24hr", self.ticker)
         self.runner = web.AppRunner(app)
         await self.runner.setup()
         await web.TCPSite(self.runner, "127.0.0.1", 0).start()
@@ -82,11 +90,19 @@ class DataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(got), 2499)                                   # 2500 minus the unfinished one
         self.assertEqual([k.ts for k in got], [T0 + k * BAR for k in range(2499)])  # in order, no gaps, no duplicates
         self.assertEqual(len(self.api.requests), 3)                        # 1000 + 1000 + 500
-        self.assertTrue(all(r["limit"] == "1000" and r["symbol"] == "BTCUSDT" for r in self.api.requests))
+        self.assertTrue(all(r["symbol"] == "BTCUSDT" for r in self.api.requests))
+        self.assertEqual([r["limit"] for r in self.api.requests[:2]], ["1000", "1000"])
+        self.assertEqual(self.api.requests[2]["limit"], "501")             # only what is missing, not a full page
 
     async def test_spot_uses_the_spot_endpoint(self):
         await fetch_range(self.client, "BTCUSDT", "4h", T0, T0 + 10 * BAR, "spot", self.now)
         self.assertEqual(self.api.requests[0]["path"], "/api/v3/klines")
+
+    async def test_top_symbols_ranks_usdt_perpetuals_by_volume_and_drops_dated_illiquid_and_other_quotes(self):
+        self.assertEqual(await top_futures_symbols(self.client, 55), ["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT"])
+        self.assertEqual(await top_futures_symbols(self.client, 2), ["BTCUSDT", "ETHUSDT"])
+        self.assertEqual(await top_futures_symbols(self.client, 55, min_quote_volume_usd=0),
+                         ["BTCUSDT", "ETHUSDT", "SOLUSDT", "DOGEUSDT", "TINYUSDT"])
 
     async def test_bad_arguments_are_rejected(self):
         with self.assertRaises(ValueError):

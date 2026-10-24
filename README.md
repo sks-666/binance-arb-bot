@@ -164,6 +164,16 @@ live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 e
                                                     #   (adds the /setups /swing /journal Telegram commands)
 ```
 
+* **Which markets.** `run.py --swing` paper-trades the **same markets the arbitrage bot scans** (`--swing-symbols arb`, the
+  default; 55 with the standard universe). `swing.py run` defaults to BTC ETH SOL BNB XRP; give it `--symbols top55` (the 55
+  most traded USDT perpetuals) or your own comma separated list. The list is **frozen when a paper run starts** and stored in
+  the journal, so the forward test cannot change retroactively when the volume ranking moves; `--swing-restart` (or
+  `--restart`) begins a new run, with a new start time, on a fresh list (old trades stay in the journal). A market with too
+  little history or a failing download is skipped and named (`/swing`, the dashboard), never fatal for the others. Each
+  account still risks 1% per trade and holds at most 5 positions / 5% total risk, so 55 markets give more *chances*, not
+  more risk.
+* **Light on Binance.** It only asks for data when a 4h candle boundary has passed (one small top-up per market, six at a
+  time) and only replays when something changed, so it adds almost nothing next to the arbitrage feed.
 * **No second engine.** Every poll (2 minutes) the runner replays the real candles from the day paper trading started
   through the *same backtester*, in its live mode, so forward results follow exactly the rules that were backtested. A
   decision is only ever taken on a **closed** candle; the still-forming candle may fill a waiting order at its open (and

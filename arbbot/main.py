@@ -227,12 +227,18 @@ async def amain(args: argparse.Namespace) -> None:
         if args.swing:  # optional second paper account family; imported lazily so the arbitrage bot never needs it
             try:
                 from swingkit.journal import Journal
-                from swingkit.paper import SwingRunner, paper_cfg_from
-                swing = SwingRunner(paper_cfg_from(args, "swing-"), client, Journal(ROOT / args.swing_journal_db),
-                                    notify=alerts.send)
+                from swingkit.paper import DEFAULT_SYMBOLS, SwingRunner, paper_cfg_from, resolve_spec
+                spec = args.swing_symbols
+                if spec.strip().lower() == "arb" and cfg.feed.mode == "sim":
+                    spec = ",".join(DEFAULT_SYMBOLS)    # the simulated feed's markets do not exist on Binance
+                    log.warning("swing: the simulated feed has no real markets; paper-trading %s instead", spec)
+                # "arb" = the very markets the arbitrage bot scans (same universe, same volume ranking)
+                symbols, auto = await resolve_spec(spec, client, list(board.markets))
+                swing = SwingRunner(paper_cfg_from(args, "swing-", symbols, auto), client,
+                                    Journal(ROOT / args.swing_journal_db), notify=alerts.send)
             except ImportError:
                 sys.exit("--swing needs the swingkit/ folder next to arbbot/.")
-            except ValueError as e:
+            except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as e:
                 sys.exit(f"--swing: {e}")
             handler.swing = engine.swing = swing
         listener = TelegramListener(cfg.alerts, alerts, handler, poll_timeout_s=cfg.alerts.poll_timeout_s)
@@ -292,9 +298,8 @@ async def amain(args: argparse.Namespace) -> None:
             coros.append(sampler.run())
         if swing is not None:
             coros.append(swing.run())
-            log.info("swing toolkit: paper accounts %s on %s candles for %s (journal %s); /setups /journal /swing",
-                     "+".join(swing.cfg.strategies), swing.cfg.interval,
-                     ",".join(s.removesuffix("USDT") for s in swing.cfg.symbols), args.swing_journal_db)
+            log.info("swing toolkit: paper accounts %s on %s candles for %d markets (journal %s); /setups /journal /swing",
+                     "+".join(swing.cfg.strategies), swing.cfg.interval, len(swing.symbols), args.swing_journal_db)
         tasks = [asyncio.create_task(c) for c in coros]
         waiter = asyncio.create_task(stop.wait())
         done, _ = await asyncio.wait([waiter, *tasks], return_when=asyncio.FIRST_COMPLETED)

@@ -34,8 +34,10 @@ async def fetch_range(client: BinanceClient, symbol: str, interval: str, start_m
     out: dict[int, Candle] = {}
     cursor = start_ms
     while cursor <= min(end_ms, now_ms):
-        rows = await client.get(venue_path[0], venue_path[1], {
-            "symbol": symbol, "interval": interval, "startTime": cursor, "endTime": end_ms, "limit": PAGE}, timeout=20.0)
+        wanted = (min(end_ms, now_ms) - cursor) // bar + 2          # ask for what is missing, not a full page: a top-up of
+        rows = await client.get(venue_path[0], venue_path[1], {     # a few candles costs 1 request weight instead of 5
+            "symbol": symbol, "interval": interval, "startTime": cursor, "endTime": end_ms,
+            "limit": min(PAGE, max(2, wanted))}, timeout=20.0)
         if not rows:
             break
         for k in parse_klines(rows):
@@ -94,6 +96,16 @@ async def load_history(client: BinanceClient, symbol: str, interval: str, days: 
 
 def to_series(candles: list[Candle]) -> Series:
     return Series.from_candles(candles)
+
+
+async def top_futures_symbols(client: BinanceClient, n: int = 55, min_quote_volume_usd: float = 20e6) -> list[str]:
+    """The n most traded USDT-margined perpetuals by 24h quote volume (the same ranking the arbitrage bot uses for its
+    universe, minus its spot-counterpart requirement: swing trading here only needs the futures candles)."""
+    rows = await client.get("fapi", "/fapi/v1/ticker/24hr", timeout=20.0)
+    ranked = sorted(((float(r["quoteVolume"]), r["symbol"]) for r in rows
+                     if r["symbol"].endswith("USDT") and "_" not in r["symbol"]
+                     and float(r["quoteVolume"]) >= min_quote_volume_usd), reverse=True)
+    return [sym for _, sym in ranked[:n]]
 
 
 async def fetch_forming(client: BinanceClient, symbol: str, interval: str, market: str = "futures",

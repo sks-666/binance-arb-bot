@@ -15,7 +15,7 @@ from swingkit.backtest import CostCfg, run_backtest
 from swingkit.cli import main as swing_main
 from swingkit.journal import Journal
 from swingkit.models import Candle, Setup
-from swingkit.paper import PaperCfg, SwingRunner, add_paper_args, paper_cfg_from
+from swingkit.paper import PaperCfg, SwingRunner, add_paper_args, paper_cfg_from, resolve_spec
 from swingkit.risk import RiskCfg
 from swingkit.strategies import Strategy
 from tests.test_swingkit import H4, QUIET, Scripted, series_from, setup
@@ -130,7 +130,7 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("why: scripted test setup", self.sent[0])
         row = self.journal.trades(mode="paper")[0]
         self.assertEqual((row["status"], row["strategy"], row["symbol"], row["run_id"]),
-                         ("open", "trend", "BTCUSDT", "paper-trend-4h"))
+                         ("open", "trend", "BTCUSDT", f"paper-trend-4h-{r.tag}"))
         self.assertAlmostEqual(row["entry"], candle(2001).open * 1.0003)       # the open of candle 2001 + 3 bps slippage
         self.assertEqual(row["stop"], 110.0)
         self.assertAlmostEqual(row["risk_usd"], 100.0, delta=1.0)               # 1% of 10,000
@@ -176,6 +176,77 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ClientConnectionError", r.last_error)
         self.assertIn("failed", r.status_text())
         self.assertIn("still loading", self.runner(2000).setups_text().lower())
+
+    def make(self, symbols, k=2000, **kw):
+        cfg = PaperCfg(symbols=symbols, strategies=["trend"], cache_dir=str(self.tmp / "klines"), **kw)
+        return SwingRunner(cfg, self.client, self.journal, self.sent.append, clock=one_bar_clock(k))
+
+    async def test_symbol_specs_arb_topn_and_lists(self):
+        self.assertEqual(await resolve_spec("BTCUSDT,ETHUSDT", self.client), (["BTCUSDT", "ETHUSDT"], False))
+        self.assertEqual(await resolve_spec("top2", self.client), (["BTCUSDT", "ETHUSDT"], True))
+        self.assertEqual(await resolve_spec("arb", self.client, ["SOLUSDT", "BTCUSDT"]), (["SOLUSDT", "BTCUSDT"], True))
+        with self.assertRaises(ValueError):
+            await resolve_spec("arb", self.client)                              # no arbitrage universe to copy
+
+    async def test_the_market_list_is_frozen_for_the_whole_run(self):
+        a = self.make(["BTCUSDT", "ETHUSDT"], symbols_auto=True)
+        b = self.make(["SOLUSDT"], 2001, symbols_auto=True)                     # the volume ranking moved overnight
+        self.assertEqual((b.symbols, b.tag, b.start_ts), (a.symbols, a.tag, a.start_ts))
+        c = self.make(["SOLUSDT"], 2001, symbols_auto=True, restart=True)       # --restart: a new run on the new list
+        self.assertEqual(c.symbols, ["SOLUSDT"])
+        self.assertNotEqual(c.tag, a.tag)
+        self.assertEqual(self.make(["XRPUSDT"], 2002, symbols_auto=True).symbols, ["SOLUSDT"])   # the new run is the remembered one
+
+    async def test_an_explicit_list_that_differs_is_refused_once_the_run_has_trades(self):
+        await self.make(["BTCUSDT"]).refresh()
+        self.assertEqual(len(self.make(["BTCUSDT", "ETHUSDT"]).symbols), 2)     # nothing traded yet: adopting it loses nothing
+        self.api.candles.append(candle(2001))
+        await self.make(["BTCUSDT", "ETHUSDT"], 2001).refresh()
+        self.assertTrue(self.journal.trades(mode="paper"))
+        with self.assertRaises(ValueError) as cm:
+            self.make(["SOLUSDT"], 2001)
+        self.assertIn("--restart", str(cm.exception))
+        self.assertEqual(self.make(["SOLUSDT"], 2001, restart=True).symbols, ["SOLUSDT"])
+
+    async def test_one_bad_market_does_not_stop_the_others(self):
+        real = self.client.get
+
+        async def flaky(venue, path, params=None, **kw):
+            if params and params.get("symbol") == "ETHUSDT":
+                raise aiohttp.ClientConnectionError("no such market")
+            return await real(venue, path, params, **kw)
+
+        r = self.make(["BTCUSDT", "ETHUSDT", "SOLUSDT"])
+        with mock.patch.object(self.client, "get", flaky):
+            await r.refresh()
+        self.assertEqual(list(r.unavailable), ["ETHUSDT"])
+        self.assertIn("ETHUSDT", r.snapshot()["unavailable"])
+        self.assertFalse(r.snapshot()["loading"])
+        self.assertIn("1 market(s) had no usable candles and are skipped: ETH", r.status_text())
+        self.api.candles.append(candle(2001))
+        r.clock = one_bar_clock(2001)
+        await r.refresh()                                                       # the market is retried and recovers
+        self.assertEqual(r.unavailable, {})
+
+    async def test_every_market_failing_is_an_error_not_an_empty_success(self):
+        r = self.make(["BTCUSDT", "ETHUSDT"])
+        with mock.patch.object(self.client, "get", side_effect=aiohttp.ClientConnectionError("down")):
+            with self.assertRaises(RuntimeError):
+                await r.refresh()
+
+    async def test_nothing_is_requested_again_until_a_candle_boundary_passes(self):
+        r = self.make([f"COIN{i}USDT" for i in range(10)])
+        self.assertIn("10 markets", r.status_text() + r._coins())
+        await r.refresh()
+        self.assertEqual(r.refreshes, 1)
+        asked = len(self.api.requests)
+        self.assertEqual(await r.refresh(), [])                                 # same candle: no requests, no replay
+        self.assertEqual((len(self.api.requests), r.refreshes), (asked, 1))
+        self.api.candles.append(candle(2001))
+        r.clock = one_bar_clock(2001)                                           # a boundary passed
+        await r.refresh()
+        self.assertGreater(len(self.api.requests), asked)
+        self.assertEqual(r.refreshes, 2)
 
     async def test_telegram_commands_read_the_runner(self):
         from tests.test_commands import build, warm

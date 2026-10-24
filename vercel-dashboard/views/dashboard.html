@@ -226,7 +226,7 @@ function renderSwing() {
   const side = s => `<span class="side-${esc(s)}">${esc(s.toUpperCase())}</span>`;
   const usd = v => "$" + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   $("sw-hint").textContent = w.loading ? "loading the first candles…"
-    : `${w.interval} · ${w.symbols.map(s => s.replace(/USDT$/, "")).join(" ")} · since ${new Date(w.start_ts).toISOString().slice(0, 16).replace("T", " ")} UTC · checked ${w.checked_age_s == null ? "–" : dur(w.checked_age_s) + " ago"}`;
+    : `${w.interval} · ${w.symbols.length > 8 ? w.symbols.length + " markets" : w.symbols.map(s => s.replace(/USDT$/, "")).join(" ")} · since ${new Date(w.start_ts).toISOString().slice(0, 16).replace("T", " ")} UTC · checked ${w.checked_age_s == null ? "–" : dur(w.checked_age_s) + " ago"}`;
   $("sw-accts").innerHTML = w.accounts.length ? w.accounts.map(a =>
     `<div class="kpi"><div class="l">${esc(a.strategy)}</div><div class="v">${usd(a.equity)}</div>` +
     `<div class="s"><span class="${cls(a.return_pct)}">${sg(a.return_pct, 2)}%</span> · ${a.open} open · ${a.closed} closed${a.closed ? ` · ${a.wins}W · ${sg(a.avg_r, 2)}R avg` : ""}</div></div>`
@@ -240,7 +240,7 @@ function renderSwing() {
   $("sw-trades").innerHTML = w.trades.length ? w.trades.map(t =>
     `<tr title="${esc(new Date(t.closed_at).toISOString().slice(0, 16).replace("T", " "))} UTC"><td class="sym">${esc(t.strategy)}</td><td class="sym">${coin(t.symbol)}</td><td>${side(t.side)}</td><td class="n">${px(t.entry)} → ${px(t.exit)}</td><td class="n ${cls(t.pnl)}">${money(t.pnl)}</td><td class="n ${cls(t.r)}">${sg(t.r, 2)}R</td><td class="mut">${esc(t.reason)}</td></tr>`
   ).join("") : `<tr><td colspan="7" class="empty">No closed swing trades yet.</td></tr>`;
-  $("sw-note").textContent = `Each account starts with $${w.capital.toLocaleString()} and risks ${w.risk_pct}% of its equity per trade. Paper only: nothing here places an order. They decide on closed ${w.interval} candles and fill at the next open, so most of the time they simply wait.` + (w.error ? ` The last refresh failed: ${w.error}` : "");
+  $("sw-note").textContent = `Each account starts with $${w.capital.toLocaleString()} and risks ${w.risk_pct}% of its equity per trade. Paper only: nothing here places an order. They decide on closed ${w.interval} candles and fill at the next open, so most of the time they simply wait.` + (w.symbols.length > 8 ? ` Markets: ${w.symbols.map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (Object.keys(w.unavailable || {}).length ? ` Skipped (no usable candles): ${Object.keys(w.unavailable).map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (w.error ? ` The last refresh failed: ${w.error}` : "");
 }
 
 function renderAll() {

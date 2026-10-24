@@ -77,22 +77,26 @@ class Journal:
         return cur.rowcount > 0
 
     # ---- reading -------------------------------------------------------------------------------
-    def _where(self, mode, strategy, status, run_id):
+    def _where(self, mode, strategy, status, run_id, run_like=None):
         clauses, args = [], []
         for col, val in (("mode", mode), ("strategy", strategy), ("status", status), ("run_id", run_id)):
             if val:
                 clauses.append(f"{col} = ?")
                 args.append(val)
+        if run_like:  # SQL LIKE pattern, e.g. every account of one paper run: "paper-%-1761293900"
+            clauses.append("run_id LIKE ?")
+            args.append(run_like)
         return (" WHERE " + " AND ".join(clauses)) if clauses else "", args
 
-    def trades(self, *, mode=None, strategy=None, status=None, run_id=None, limit: int | None = 20) -> list[dict]:
-        where, args = self._where(mode, strategy, status, run_id)
+    def trades(self, *, mode=None, strategy=None, status=None, run_id=None, run_like=None,
+               limit: int | None = 20) -> list[dict]:
+        where, args = self._where(mode, strategy, status, run_id, run_like)
         sql = f"SELECT * FROM journal{where} ORDER BY id DESC" + (" LIMIT ?" if limit else "")
         return [dict(r) for r in self.db.execute(sql, args + ([limit] if limit else [])).fetchall()]
 
-    def stats(self, *, mode=None, strategy=None, run_id=None) -> dict:
-        closed = self.trades(mode=mode, strategy=strategy, run_id=run_id, status="closed", limit=None)
-        opened = self.trades(mode=mode, strategy=strategy, run_id=run_id, status="open", limit=None)
+    def stats(self, *, mode=None, strategy=None, run_id=None, run_like=None) -> dict:
+        closed = self.trades(mode=mode, strategy=strategy, run_id=run_id, run_like=run_like, status="closed", limit=None)
+        opened = self.trades(mode=mode, strategy=strategy, run_id=run_id, run_like=run_like, status="open", limit=None)
         pnl = [t["pnl_usd"] for t in closed]
         wins = [p for p in pnl if p > 0]
         losses = [-p for p in pnl if p <= 0]
