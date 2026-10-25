@@ -22,13 +22,15 @@ class BinanceError(Exception):
 class BinanceClient:
     def __init__(
         self, session: aiohttp.ClientSession, env: str = "mainnet", api_key: str = "", api_secret: str = "",
-        timeout_s: float = 4.0,
+        timeout_s: float = 4.0, venue_keys: dict[str, tuple[str, str]] | None = None,
     ):
         self.session = session
         self.hosts = HOSTS[env]
         self.env = env
         self.api_key = api_key
         self.api_secret = api_secret
+        # per-venue (key, secret): on testnet, spot and futures are separate exchanges with separate keys
+        self.venue_keys = dict(venue_keys or {})
         self.timeout = aiohttp.ClientTimeout(total=timeout_s)
         self.time_offset_ms = 0
         self.used_weight = {"fapi": 0, "spot": 0}
@@ -40,18 +42,19 @@ class BinanceClient:
             raise BinanceError(429, None, "local rate-limit backoff active", path)
         params = {k: v for k, v in (params or {}).items() if v is not None}
         headers = {}
+        api_key, api_secret = self.venue_keys.get(venue, (self.api_key, self.api_secret))
         if signed:
-            if not (self.api_key and self.api_secret):
-                raise RuntimeError("BINANCE_API_KEY / BINANCE_API_SECRET are required for signed requests")
+            if not (api_key and api_secret):
+                raise RuntimeError(f"an API key and secret for {venue} are required for signed requests")
             params["timestamp"] = int(time.time() * 1000) + self.time_offset_ms
             params["recvWindow"] = 5000
             query = urllib.parse.urlencode(params)
-            sig = hmac.new(self.api_secret.encode(), query.encode(), hashlib.sha256).hexdigest()
+            sig = hmac.new(api_secret.encode(), query.encode(), hashlib.sha256).hexdigest()
             query = f"{query}&signature={sig}"
         else:
             query = urllib.parse.urlencode(params)
-        if self.api_key:
-            headers["X-MBX-APIKEY"] = self.api_key
+        if api_key:
+            headers["X-MBX-APIKEY"] = api_key
         url = f"{self.hosts[venue]}{path}" + (f"?{query}" if query else "")
         limit = aiohttp.ClientTimeout(total=timeout) if timeout else self.timeout
         async with self.session.request(method, url, headers=headers, timeout=limit) as resp:

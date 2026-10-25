@@ -14,7 +14,7 @@ from aiohttp import web
 
 from . import __version__
 from .alerts import Notifier, find_chat_ids
-from .binance_client import BinanceClient
+from .binance_client import HOSTS, BinanceClient, BinanceError
 from .commands import CommandHandler, TelegramListener
 from .config import load
 from .engine import Engine
@@ -35,6 +35,76 @@ from .sizing import RestDepth
 
 ROOT = Path(__file__).resolve().parent.parent
 LIVE_ACK = "I_UNDERSTAND_THIS_TRADES_REAL_MONEY"
+VENUE_NAME = {"fapi": "futures", "spot": "spot"}
+# Which environment variables hold the keys. On testnet, spot and futures are two separate exchanges with separate keys;
+# each falls back to BINANCE_API_KEY / BINANCE_API_SECRET when its own pair is not set.
+KEY_VARS = {
+    "mainnet": {"fapi": ("BINANCE_API_KEY", "BINANCE_API_SECRET"), "spot": ("BINANCE_API_KEY", "BINANCE_API_SECRET")},
+    "testnet": {"fapi": ("BINANCE_TESTNET_FUTURES_API_KEY", "BINANCE_TESTNET_FUTURES_API_SECRET"),
+                "spot": ("BINANCE_TESTNET_SPOT_API_KEY", "BINANCE_TESTNET_SPOT_API_SECRET")},
+}
+
+
+def live_keys(env: str, environ=None) -> dict[str, tuple[str, str, str]]:
+    """{venue: (key, secret, name of the variable it came from)}. Values are never logged, only the variable names."""
+    environ = os.environ if environ is None else environ
+    out = {}
+    for venue, (k, s) in KEY_VARS[env].items():
+        if environ.get(k) and environ.get(s):
+            out[venue] = (environ[k], environ[s], k)
+        else:
+            out[venue] = (environ.get("BINANCE_API_KEY", ""), environ.get("BINANCE_API_SECRET", ""), "BINANCE_API_KEY")
+    return out
+
+
+def explain_binance_error(e: BinanceError, env: str, keys: dict) -> str:
+    """A refusal from Binance, in words: which exchange, which key variable, and what to check."""
+    venue = "fapi" if e.path.startswith(("/fapi", "/futures")) else "spot"
+    name, var = VENUE_NAME[venue], keys[venue][2]
+    host = HOSTS[env][venue]
+    if e.status in (401, 403) or e.code in (-2014, -2015, -1022):
+        return (f"Binance {env} {name} ({host}) rejected the key from {var}: HTTP {e.status}, code {e.code}, "
+                f"{e.msg}. Check the key was created for {host}, has {name} trading permission, and has no IP "
+                f"restriction blocking this machine.")
+    return f"Binance {env} {name} ({host}) refused {e.path}: HTTP {e.status}, code {e.code}, {e.msg}"
+
+
+async def run_check(cfg, keys: dict) -> int:
+    """--check: every read-only step of the live preflight, one by one, so the report says exactly what works.
+    Nothing here can place an order: it only reads the clock, the account mode, balances and fee rates."""
+    env = cfg.execution.env
+    print(f"Read-only check of the {env} live setup. No orders are sent; the bot is not started.")
+    for venue in ("fapi", "spot"):
+        print(f"  {VENUE_NAME[venue]:8s} {HOSTS[env][venue]}  key from {keys[venue][2]}"
+              + ("" if keys[venue][0] and keys[venue][1] else "  (NOT SET)"))
+    ok = True
+    async with aiohttp.ClientSession() as session:
+        client = BinanceClient(session, env, timeout_s=10.0, venue_keys={v: (k, s) for v, (k, s, _) in keys.items()})
+        ex = LiveExecutor(client, cfg)
+
+        async def step(label, coro_fn, show):
+            nonlocal ok
+            try:
+                print(f"  ✔ {label}: {show(await coro_fn())}")
+            except BinanceError as e:
+                ok = False
+                print(f"  ✘ {label}: {explain_binance_error(e, env, keys)}")
+            except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError) as e:
+                ok = False
+                print(f"  ✘ {label}: {type(e).__name__}: {e}")
+
+        await step("clock", client.sync_time, lambda off: f"offset {off} ms")
+        await step("futures account mode", lambda: client.get("fapi", "/fapi/v1/positionSide/dual", signed=True),
+                   lambda d: "Hedge Mode: switch to One-way Mode before trading" if d.get("dualSidePosition")
+                   else "One-way Mode (ok)")
+        await step("futures balance", lambda: ex._fut_get("/fapi/v3/balance", "/fapi/v2/balance"),
+                   lambda rows: f"{next((float(b.get('availableBalance', 0)) for b in rows if b.get('asset') == 'USDT'), 0.0):,.2f} USDT available")
+        await step("spot account", lambda: client.get("spot", "/api/v3/account", signed=True),
+                   lambda a: f"{next((float(b['free']) for b in a['balances'] if b['asset'] == 'USDT'), 0.0):,.2f} USDT free"
+                   + ("" if a.get("canTrade", True) else " (canTrade is FALSE)"))
+        await step("fee rates", ex.fetch_fees, lambda f: f"futures taker {f[0]:.2f} bps, spot taker {f[1]:.2f} bps")
+    print("All checks passed. Nothing was traded." if ok else "Some checks failed (see above). Nothing was traded.")
+    return 0 if ok else 1
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -47,7 +117,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--min-samples", type=int, help="override strategy.min_samples (shorter warm-up)")
     p.add_argument("--no-trade", action="store_true", help="monitor only: never open positions")
     p.add_argument("--live", action="store_true", help="send REAL orders (needs API keys; mainnet also needs ARBBOT_LIVE_ACK)")
-    p.add_argument("--testnet", action="store_true", help="use Binance testnet hosts (with --live)")
+    p.add_argument("--testnet", action="store_true", help="use Binance testnet hosts (with --live or --check)")
+    p.add_argument("--check", action="store_true",
+                   help="read-only check of the live setup (keys, permissions, account mode, balances, fees) on mainnet "
+                        "or --testnet, then exit. Sends NO orders and does not start the bot")
     p.add_argument("--hosted", action="store_true",
                    help="container-host mode (paper only): serve a READ-ONLY dashboard behind a login (DASHBOARD_PASSWORD) "
                         "plus /healthz on 0.0.0.0:$PORT instead of the local dashboard; the recorder stays off unless "
@@ -151,13 +224,18 @@ async def amain(args: argparse.Namespace) -> None:
             sys.exit("--live requires a real feed (--feed ws or rest); the simulator cannot drive real orders.")
         if cfg.execution.env == "mainnet" and os.environ.get("ARBBOT_LIVE_ACK") != LIVE_ACK:
             sys.exit(f"Mainnet live trading needs ARBBOT_LIVE_ACK={LIVE_ACK} in the environment. Try --testnet first.")
-        if not (os.environ.get("BINANCE_API_KEY") and os.environ.get("BINANCE_API_SECRET")):
-            sys.exit("--live needs BINANCE_API_KEY and BINANCE_API_SECRET (see .env.example).")
+        for venue, (k, s, _) in live_keys(cfg.execution.env).items():
+            if not (k and s):
+                want = " and ".join(KEY_VARS[cfg.execution.env][venue])
+                sys.exit(f"--live needs {VENUE_NAME[venue]} keys: set {want} (or BINANCE_API_KEY and "
+                         f"BINANCE_API_SECRET) in .env (see .env.example).")
     else:
         cfg.execution.mode = "paper"
     cfg.risk.kill_file = str(ROOT / cfg.risk.kill_file) if not os.path.isabs(cfg.risk.kill_file) else cfg.risk.kill_file
     cfg.validate()
 
+    if args.check:   # read-only: never builds the engine, never sends an order
+        sys.exit(await run_check(cfg, live_keys(cfg.execution.env)))
     setup_logging()
     log = logging.getLogger("main")
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -178,15 +256,20 @@ async def amain(args: argparse.Namespace) -> None:
     board = Board(cfg.feed.mode)
 
     async with aiohttp.ClientSession() as session:
+        keys = live_keys(cfg.execution.env) if live else {}
         client = BinanceClient(
             session, cfg.execution.env,
             os.environ.get("BINANCE_API_KEY", "") if live else "",
             os.environ.get("BINANCE_API_SECRET", "") if live else "",
             cfg.feed.request_timeout_s,
+            venue_keys={v: (k, s) for v, (k, s, _) in keys.items()},
         )
         if live:
             executor = LiveExecutor(client, cfg)
-            await executor.preflight()
+            try:
+                await executor.preflight()
+            except BinanceError as e:   # refuse to start, in words, before any order could be sent
+                sys.exit("Live preflight failed, nothing was traded. " + explain_binance_error(e, cfg.execution.env, keys))
             try:  # the edge calculation must use what this account really pays, not the VIP-0 defaults
                 fut_bps, spot_bps = await executor.fetch_fees()
                 cfg.fees.futures_taker_bps, cfg.fees.spot_taker_bps = fut_bps, spot_bps
