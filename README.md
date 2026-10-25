@@ -226,6 +226,19 @@ live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 e
   mark price reaches its liquidation price. Simplified on purpose: whole fills only (no partials), a resting limit fills
   when the price reaches it (no queue position), FOK behaves like IOC, one maintenance margin rate (0.5%) for every
   market, a 5 USDT minimum order. State: `data/paper-futures.json`.
+* **Order ticket on the Binance futures TESTNET.** Run `run.py --live --testnet --config config.testnet.toml` (your
+  normal strategy, recorder off, dashboard on http://127.0.0.1:8767) and the same ticket sends **real orders to the
+  futures testnet** (test money): the badge says TESTNET, and balance, positions (with Binance's own liquidation
+  price), open orders and fills are read back from the testnet account (`arbbot/testnet_ticket.py`). Limit and market
+  orders use the normal order endpoint; conditional orders and TP/SL use Binance's **Algo Order API**
+  (`/fapi/v1/algoOrder`, which the normal endpoint now requires: code -4120), and TP/SL are placed as closePosition
+  orders once the entry fills, then removed automatically when the position closes. TP/SL cannot be attached to a
+  conditional order that has not triggered yet. The ticket refuses any non-testnet connection, so it can never trade
+  mainnet; on paper and mainnet bots it stays the paper account. It shares the testnet account with the arbitrage bot,
+  so the two never touch the same coin (the ticket refuses the bot's coins, the bot skips the ticket's, and the startup
+  check ignores the ticket's coins, saved in `data/ticket-live-testnet-real.json`). The bot logs the testnet request
+  weight every 30 s with the busiest endpoints: the testnet bans an IP that keeps exceeding 2,400 a minute, and the IP
+  Binance sees may be shared with other traffic.
 * **Run only one of the two at a time.** Both write the same journal; they would agree, but you would get every alert twice.
 * **It is paper only and separate from the arbitrage book.** If the candle download fails the runner logs it and retries
   (30 s, doubling to 15 min); it can never stop the arbitrage bot that shares the process.
