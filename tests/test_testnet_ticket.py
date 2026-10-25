@@ -17,6 +17,7 @@ class FakeTestnet:
         self.open: list[dict] = []
         self.positions: dict[str, float] = {}
         self.status_of: dict[int, str] = {}
+        self.algo: list[dict] = []
 
     async def get(self, venue, path, params=None, signed=False, timeout=None):
         p = params or {}
@@ -43,6 +44,8 @@ class FakeTestnet:
                     for s, a in self.positions.items()]
         if path == "/fapi/v1/openOrders":
             return [o for o in self.open if o["symbol"] == p["symbol"]]
+        if path == "/fapi/v1/openAlgoOrders":
+            return [a for a in self.algo if a["symbol"] == p["symbol"]]
         if path == "/fapi/v1/userTrades":
             return []
         raise AssertionError(path)
@@ -50,10 +53,18 @@ class FakeTestnet:
     async def post(self, venue, path, params=None, signed=True):
         if path in ("/fapi/v1/marginType", "/fapi/v1/leverage"):
             return {"leverage": int(params.get("leverage", 15))} if path.endswith("leverage") else {}
-        assert path == "/fapi/v1/order", path
-        self.posts.append(dict(params))
+        self.posts.append(dict(params, _path=path))
         self.next_id += 1
         t = params["type"]
+        if path == "/fapi/v1/algoOrder":                    # conditional orders: the Algo Order API
+            assert params["algoType"] == "CONDITIONAL" and "stopPrice" not in params, params
+            self.algo.append({"algoId": self.next_id, "symbol": params["symbol"], "side": params["side"],
+                              "orderType": t, "quantity": params.get("quantity", ""), "price": params.get("price", "0"),
+                              "triggerPrice": params["triggerPrice"], "closePosition": params.get("closePosition") == "true",
+                              "workingType": params.get("workingType", "CONTRACT_PRICE"), "algoStatus": "NEW"})
+            return {"algoId": self.next_id, "algoStatus": "NEW"}
+        assert path == "/fapi/v1/order", path
+        assert t in ("LIMIT", "MARKET"), f"{t} must go to the Algo API (Binance answers -4120 here)"
         if t == "MARKET":                                   # the testnet reply: FILLED, but no avgPrice / cumQuote
             q = float(params["quantity"]) * (1 if params["side"] == "BUY" else -1)
             self.positions[params["symbol"]] = self.positions.get(params["symbol"], 0.0) + q
@@ -68,6 +79,10 @@ class FakeTestnet:
 
     async def request(self, venue, method, path, params=None, signed=False, timeout=None):
         assert method == "DELETE"
+        if path == "/fapi/v1/algoOrder":
+            self.deleted.append(f"a{params['algoId']}")
+            self.algo = [a for a in self.algo if a["algoId"] != params["algoId"]]
+            return {"algoId": params["algoId"], "code": "200", "msg": "success"}
         self.deleted.append(params["orderId"])
         self.open = [o for o in self.open if o["orderId"] != params["orderId"]]
         return {"orderId": params["orderId"], "status": "CANCELED", "symbol": params["symbol"], "side": "BUY",
@@ -124,8 +139,12 @@ class TicketTests(unittest.IsolatedAsyncioTestCase):
     async def test_tp_sl_follow_a_market_fill_as_close_position_orders(self):
         await self.order(side="buy", type="market", size_usdt=200, tp=84000, sl=78000)
         exits = [p for p in self.ex.posts if p.get("closePosition") == "true"]
-        self.assertEqual(sorted((p["type"], p["side"], p["stopPrice"]) for p in exits),
-                         [("STOP_MARKET", "SELL", "78000"), ("TAKE_PROFIT_MARKET", "SELL", "84000")])
+        self.assertEqual(sorted((p["type"], p["side"], p["triggerPrice"], p["_path"]) for p in exits),
+                         [("STOP_MARKET", "SELL", "78000", "/fapi/v1/algoOrder"),
+                          ("TAKE_PROFIT_MARKET", "SELL", "84000", "/fapi/v1/algoOrder")])
+        await self.t.refresh()
+        reasons = sorted(o["reason"] for o in self.t.view()["orders"])
+        self.assertEqual(reasons, ["stop-loss", "take-profit"])           # listed from openAlgoOrders
 
     async def test_tp_sl_on_a_resting_limit_wait_for_its_fill(self):
         o = await self.order(side="buy", type="limit", price=79000, size_usdt=200, tp=84000, sl=78000)
@@ -150,6 +169,26 @@ class TicketTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await self.t.transfer(100)
         self.assertEqual(self.ex.posts, [])
+
+    async def test_conditional_orders_use_the_algo_api_and_cancel_there(self):
+        o = await self.order(side="buy", type="stop_market", stop_price=81000, size_usdt=200)
+        self.assertTrue(str(o["id"]).startswith("a"))
+        self.assertEqual(self.ex.posts[-1]["_path"], "/fapi/v1/algoOrder")
+        await self.t.refresh()
+        listed = [x for x in self.t.view()["orders"] if x["id"] == o["id"]]
+        self.assertEqual((listed[0]["type"], listed[0]["stop_price"]), ("stop_market", 81000.0))
+        await self.t.cancel(o["id"])
+        self.assertEqual(self.ex.deleted, [o["id"]])
+        self.assertEqual(self.ex.algo, [])
+        with self.assertRaises(ValueError):                  # TP/SL on a not-yet-triggered stop: refused on testnet
+            await self.order(side="buy", type="stop_market", stop_price=81000, size_usdt=200, tp=85000)
+
+    async def test_tp_sl_are_tidied_when_the_position_closes(self):
+        await self.order(side="buy", type="market", size_usdt=200, tp=84000, sl=78000)
+        self.assertEqual(len(self.ex.algo), 2)
+        self.ex.positions["BTCUSDT"] = 0.0                   # closed elsewhere: its closePosition orders are now orphans
+        await self.t.refresh()
+        self.assertEqual(self.ex.algo, [])
 
     async def test_cancel_and_close(self):
         o = await self.order(side="buy", type="limit", price=79000, size_usdt=200)

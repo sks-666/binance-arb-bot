@@ -209,27 +209,36 @@ class TestnetTicket:
                 moved = abs(est / top - 1) * 100
                 if moved > slip:
                     raise ValueError(f"would slip about {moved:.2f}% through the order book (tolerance {slip:g}%)")
-            params = {"symbol": sym, "side": side.upper(), "quantity": _fmt(qd), "newOrderRespType": "RESULT"}
-            if typ == "limit":
-                params.update(type="LIMIT", price=_fmt(self._px(sym, price)), timeInForce=tif)
-            elif typ == "market":
-                params.update(type="MARKET")
+            if typ.startswith("stop") and (tp or sl):
+                raise ValueError("on testnet, add TP/SL once the conditional order has filled (attach it to a limit "
+                                 "or market order instead)")
+            params = {"symbol": sym, "side": side.upper(), "quantity": _fmt(qd)}
+            if reduce_only:
+                params["reduceOnly"] = "true"
+            if not reduce_only:
+                await self._ensure_margin(sym)
+            if typ in ("limit", "market"):
+                params["newOrderRespType"] = "RESULT"
+                if typ == "limit":
+                    params.update(type="LIMIT", price=_fmt(self._px(sym, price)), timeInForce=tif)
+                else:
+                    params.update(type="MARKET")
+                o = await self.c.post("fapi", "/fapi/v1/order", params)
+                out = await self._describe(sym, o)
             else:
-                # a buy that triggers ABOVE the price is a STOP, below it a TAKE_PROFIT (sells: the other way round)
-                rises = stop > q["last"]
-                kind = "STOP" if rises == buy else "TAKE_PROFIT"
-                params.update(stopPrice=_fmt(self._px(sym, stop)),
+                # Conditional orders live on Binance's Algo Order API (POST /fapi/v1/order refuses them: code -4120).
+                # A buy that triggers ABOVE the price is a STOP, below it a TAKE_PROFIT (sells: the other way round).
+                kind = "STOP" if (stop > q["last"]) == buy else "TAKE_PROFIT"
+                params.update(algoType="CONDITIONAL", triggerPrice=_fmt(self._px(sym, stop)),
                               workingType="MARK_PRICE" if trigger == "mark" else "CONTRACT_PRICE")
                 if typ == "stop_limit":
                     params.update(type=kind, price=_fmt(self._px(sym, price)), timeInForce=tif)
                 else:
                     params.update(type=f"{kind}_MARKET")
-            if reduce_only:
-                params["reduceOnly"] = "true"
-            if not reduce_only:
-                await self._ensure_margin(sym)
-            o = await self.c.post("fapi", "/fapi/v1/order", params)
-            out = await self._describe(sym, o)
+                o = await self.c.post("fapi", "/fapi/v1/algoOrder", params)
+                out = dict(id=f"a{o.get('algoId')}", symbol=sym, side=side, type=typ, qty=float(qd), price=price,
+                           stop_price=stop, status=STATUS.get(o.get("algoStatus", "NEW"), "new"), filled_px=None,
+                           fee=0.0, reason="", created=int(o.get("createTime") or self.clock() * 1000))
             self._own(sym)
             if tp or sl:
                 if out["status"] == "filled":
@@ -267,9 +276,9 @@ class TestnetTicket:
             if not px:
                 continue
             try:
-                await self.c.post("fapi", "/fapi/v1/order", {
-                    "symbol": sym, "side": exit_side, "type": kind, "stopPrice": _fmt(self._px(sym, px)),
-                    "closePosition": "true", "workingType": "CONTRACT_PRICE"})
+                await self.c.post("fapi", "/fapi/v1/algoOrder", {
+                    "algoType": "CONDITIONAL", "symbol": sym, "side": exit_side, "type": kind,
+                    "triggerPrice": _fmt(self._px(sym, px)), "closePosition": "true", "workingType": "CONTRACT_PRICE"})
             except BinanceError as e:                  # the entry stands; say clearly that its protection is missing
                 log.error("%s: could not place the %s for order %s: %s", sym, kind, parent, e)
                 self.notify(f"⚠️ TESTNET {sym}: the {kind.replace('_', ' ').lower()} could not be placed ({e.msg}). "
@@ -277,14 +286,21 @@ class TestnetTicket:
 
     async def cancel(self, order_id) -> dict:
         async with self._lock:
-            o = next((x for x in self.open_orders if x.get("orderId") == order_id), None)
+            o = next((x for x in self.open_orders if str(x.get("orderId")) == str(order_id)), None)
             if o is None:
                 raise ValueError("no such open order on the testnet account")
             self._check_symbol(o["symbol"])
-            r = await self.c.request("fapi", "DELETE", "/fapi/v1/order", {"symbol": o["symbol"], "orderId": order_id},
-                                     signed=True)
+            if "_algo" in o:                                 # a conditional order: cancelled through the Algo API
+                await self.c.request("fapi", "DELETE", "/fapi/v1/algoOrder", {"algoId": o["_algo"]}, signed=True)
+                out = dict(id=o["orderId"], symbol=o["symbol"], side=o["side"].lower(), type=KIND.get(o["type"], "stop_market"),
+                           qty=float(o.get("origQty") or 0), price=float(o.get("price") or 0) or None,
+                           stop_price=float(o.get("stopPrice") or 0) or None, status="canceled", filled_px=None,
+                           fee=0.0, reason="", created=int(o.get("time") or 0))
+            else:
+                r = await self.c.request("fapi", "DELETE", "/fapi/v1/order", {"symbol": o["symbol"], "orderId": o["orderId"]},
+                                         signed=True)
+                out = await self._describe(o["symbol"], r)
             self.s["tpsl"].pop(str(order_id), None)
-            out = await self._describe(o["symbol"], r)
             self._history(dict(out, status="canceled", reason="canceled by you", updated=int(self.clock() * 1000)))
             self._save()
         await self._safe_refresh()
@@ -337,7 +353,7 @@ class TestnetTicket:
         # open orders only on the ticket's own coins (weight 1 each, instead of 40 for the all-coins call)
         mine = sorted(set(self.s["owned"]) | {t["symbol"] for t in self.s["tpsl"].values()})
         got = await asyncio.gather(*(self.c.get("fapi", "/fapi/v1/openOrders", {"symbol": s}, signed=True) for s in mine))
-        orders = [o for g in got for o in g]
+        orders = [o for g in got for o in g] + await self._open_algo(mine)
         self.account, self.risk, self.open_orders = account, risk, orders
         arb = self.arb_symbols()
         open_ids = {o["orderId"] for o in orders}
@@ -353,8 +369,11 @@ class TestnetTicket:
         for o in orders:                                 # a closed position leaves its TP/SL behind: tidy them up
             if o["symbol"] in flat and o["symbol"] not in arb and o.get("closePosition") in (True, "true"):
                 try:
-                    await self.c.request("fapi", "DELETE", "/fapi/v1/order", {"symbol": o["symbol"], "orderId": o["orderId"]},
-                                         signed=True)
+                    if "_algo" in o:
+                        await self.c.request("fapi", "DELETE", "/fapi/v1/algoOrder", {"algoId": o["_algo"]}, signed=True)
+                    else:
+                        await self.c.request("fapi", "DELETE", "/fapi/v1/order",
+                                             {"symbol": o["symbol"], "orderId": o["orderId"]}, signed=True)
                 except BinanceError:
                     pass
         busy = {p["symbol"] for p in risk if float(p["positionAmt"]) != 0} | {o["symbol"] for o in orders}
@@ -369,6 +388,26 @@ class TestnetTicket:
             self.fills = sorted((f for g in got if isinstance(g, list) for f in g), key=lambda f: -int(f["time"]))[:50]
         self._save()
 
+    async def _open_algo(self, symbols: list[str]) -> list[dict]:
+        """Open conditional (Algo API) orders on these coins, in the same shape as regular open orders."""
+        out = []
+        for s in symbols:
+            try:
+                r = await self.c.get("fapi", "/fapi/v1/openAlgoOrders", {"symbol": s}, signed=True)
+            except BinanceError as e:
+                if e.status == 404:                          # no algo endpoint on this host: nothing to list
+                    return out
+                raise
+            rows = r if isinstance(r, list) else (r.get("orders") or r.get("rows") or [])
+            for a in rows:
+                out.append({"orderId": f"a{a['algoId']}", "_algo": a["algoId"], "symbol": a.get("symbol", s),
+                            "side": a.get("side", ""), "type": a.get("orderType") or a.get("type", "STOP_MARKET"),
+                            "origQty": a.get("quantity") or "0", "price": a.get("price") or "0",
+                            "stopPrice": a.get("triggerPrice") or "0", "closePosition": a.get("closePosition"),
+                            "reduceOnly": a.get("reduceOnly"), "workingType": a.get("workingType", "CONTRACT_PRICE"),
+                            "timeInForce": a.get("timeInForce", "GTC"), "time": a.get("createTime") or 0})
+        return out
+
     async def _safe_refresh(self) -> None:
         try:
             await self.refresh()
@@ -379,10 +418,22 @@ class TestnetTicket:
             self.last_error = f"{type(e).__name__}: {str(e)[:120]}"
 
     async def run(self) -> None:
+        said, seen = 0.0, {}
         while True:
             await self._safe_refresh()
             if self.last_error:
                 log.warning("testnet ticket refresh failed: %s", self.last_error)
+            # Binance reports this IP's request weight for the last minute in every reply; the testnet bans an IP that
+            # keeps going over its limit (HTTP 418), so say it out loud before that happens.
+            used = getattr(self.c, "used_weight", {}).get("fapi", 0)
+            if self.clock() - said >= 30:
+                said = self.clock()
+                calls = dict(getattr(self.c, "calls", {}))
+                busiest = sorted(((n - seen.get(k, 0), k) for k, n in calls.items()), reverse=True)[:6]
+                seen = calls
+                (log.warning if used >= 1200 else log.info)(
+                    "testnet request weight used this minute: %d of 2400%s | most requests since last: %s", used,
+                    " (high)" if used >= 1200 else "", ", ".join(f"{k} x{n}" for n, k in busiest if n))
             await asyncio.sleep(self.poll_s)
 
     def _usdt(self, key: str) -> float:

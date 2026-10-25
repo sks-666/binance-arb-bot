@@ -1126,7 +1126,8 @@ $("pf-pos").addEventListener("click", async e => {
 });
 $("pf-orders").addEventListener("click", async e => {
   const id = e.target.dataset && e.target.dataset.cancel;
-  if (id && await pfPost("cancel", { id: Number(id) }, [e.target])) otMsg(`${VNC()} order canceled.`);
+  // regular order ids are numbers; testnet conditional (Algo API) orders have ids like "a123"
+  if (id && await pfPost("cancel", { id: /^\d+$/.test(id) ? Number(id) : id }, [e.target])) otMsg(`${VNC()} order canceled.`);
 });
 $("mk-sym").addEventListener("change", () => { $("ot-levbox").hidden = true; otEst(); });
 otMode(); pfRender();

@@ -4,6 +4,7 @@ import hmac
 import json
 import time
 import urllib.parse
+from collections import Counter
 
 import aiohttp
 
@@ -34,6 +35,7 @@ class BinanceClient:
         self.timeout = aiohttp.ClientTimeout(total=timeout_s)
         self.time_offset_ms = 0
         self.used_weight = {"fapi": 0, "spot": 0}
+        self.calls: Counter = Counter()     # "venue path" -> requests sent (to find what spends the request weight)
         self.backoff_until = 0.0
 
     async def request(self, venue: str, method: str, path: str, params: dict | None = None, signed: bool = False,
@@ -55,6 +57,7 @@ class BinanceClient:
             query = urllib.parse.urlencode(params)
         if api_key:
             headers["X-MBX-APIKEY"] = api_key
+        self.calls[f"{venue} {path}"] += 1
         url = f"{self.hosts[venue]}{path}" + (f"?{query}" if query else "")
         limit = aiohttp.ClientTimeout(total=timeout) if timeout else self.timeout
         async with self.session.request(method, url, headers=headers, timeout=limit) as resp:
