@@ -256,7 +256,9 @@ async def amain(args: argparse.Namespace) -> None:
             handler.swing = engine.swing = swing
         listener = TelegramListener(cfg.alerts, alerts, handler, poll_timeout_s=cfg.alerts.poll_timeout_s)
         # the dashboard's order ticket trades a PAPER futures account at live prices; it never touches the executor
-        paper_futures = PaperFutures(ROOT / "data" / "paper-futures.json", client, cfg.fees.futures_taker_bps,
+        # one paper futures account per bot state, so two bots (e.g. paper + testnet) never write the same file
+        pf_name = "paper-futures.json" if db_path.stem == "paper-mainnet-real" else f"paper-futures-{db_path.stem}.json"
+        paper_futures = PaperFutures(ROOT / "data" / pf_name, client, cfg.fees.futures_taker_bps,
                                      notify=alerts.send)
         dash = Dashboard(engine, cfg, ROOT / "web", market=MarketData(client), paper=paper_futures)
         if args.hosted:  # public interface: the READ-ONLY page behind a login, never the dashboard with its controls
