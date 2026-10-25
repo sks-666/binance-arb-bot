@@ -23,6 +23,7 @@ from .feeds import WS_DEFAULTS, Board, HybridFeed, RestFeed, SimFeed, WsFeed
 from .health import hosted_port
 from .hosted_dashboard import MIN_PASSWORD, make_hosted_app, settings_from_env
 from .live import LiveExecutor
+from .market import MarketData
 from .portfolio import Portfolio, Store
 from .publisher import SnapshotPublisher
 from .recorder import DepthSampler, Recorder
@@ -242,7 +243,7 @@ async def amain(args: argparse.Namespace) -> None:
                 sys.exit(f"--swing: {e}")
             handler.swing = engine.swing = swing
         listener = TelegramListener(cfg.alerts, alerts, handler, poll_timeout_s=cfg.alerts.poll_timeout_s)
-        dash = Dashboard(engine, cfg, ROOT / "web")
+        dash = Dashboard(engine, cfg, ROOT / "web", market=MarketData(client))  # chart / order book panel (read-only)
         if args.hosted:  # public interface: the READ-ONLY page behind a login, never the dashboard with its controls
             hosted_password, hosted_user = settings_from_env()
             runner = web.AppRunner(make_hosted_app(engine, ROOT / "vercel-dashboard" / "views" / "dashboard.html",

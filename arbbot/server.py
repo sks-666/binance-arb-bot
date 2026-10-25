@@ -20,8 +20,9 @@ ACTIONS = ("halt", "resume", "flatten")
 
 
 class Dashboard:
-    def __init__(self, engine: Engine, cfg: Config, web_dir: Path):
+    def __init__(self, engine: Engine, cfg: Config, web_dir: Path, market=None):
         self.engine = engine
+        self.market = market                      # an arbbot.market.MarketData for the chart / order book panel, or None
         self.cfg = cfg
         self.web_dir = web_dir
         self.token = secrets.token_urlsafe(24)
@@ -45,9 +46,30 @@ class Dashboard:
         app.router.add_get("/", self.index)
         app.router.add_get("/ws", self.ws)
         app.router.add_get("/api/snapshot", self.snapshot)
+        app.router.add_get("/api/market/{kind}", self.market_data)
         app.router.add_post("/api/swing-capital", self.swing_capital)      # before the generic /api/{action}
         app.router.add_post("/api/{action}", self.action)
         return app
+
+    async def market_data(self, request: web.Request) -> web.Response:
+        """Public Binance futures market data for the market panel (read-only; see arbbot/market.py)."""
+        if self.market is None:
+            return web.json_response({"error": "market data is not available in this bot"}, status=404)
+        kind, q = request.match_info["kind"], request.query
+        calls = {"klines": lambda: self.market.klines(q.get("symbol", ""), q.get("interval", "1h")),
+                 "depth": lambda: self.market.depth(q.get("symbol", "")),
+                 "trades": lambda: self.market.trades(q.get("symbol", "")),
+                 "info": lambda: self.market.info(q.get("symbol", "")),
+                 "data": lambda: self.market.trading_data(q.get("symbol", "")),
+                 "movers": lambda: self.market.movers()}
+        if kind not in calls:
+            raise web.HTTPNotFound()
+        try:
+            return web.json_response(await calls[kind](), headers={"Cache-Control": "no-store"})
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+        except Exception as e:                    # Binance down, unknown symbol, rate limit: the panel shows it, nothing else
+            return web.json_response({"error": f"{type(e).__name__}: {str(e)[:160]}"}, status=502)
 
     async def swing_capital(self, request: web.Request) -> web.Response:
         """Give one swing paper account a new fund (see SwingRunner.set_capital: that account restarts from now)."""

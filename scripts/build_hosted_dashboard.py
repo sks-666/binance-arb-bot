@@ -83,10 +83,13 @@ def main() -> None:
     html = must_sub(r'  const pause = \$\("btn-pause"\);.*?\$\("btn-flat"\)\.disabled = s\.open === 0;\n', "", html)
     # 4. transport: control actions + WebSocket -> polling
     html = must_sub(r"async function act\(name\).*?</script>", POLLING_JS + "</script>", html)
-    # 5. hosted page should never be indexed
+    # 5. the market panel (chart, order book, trades) relays Binance through the LOCAL bot; the hosted copies have no
+    #    /api/market, so the section goes (its script is already gone with step 4)
+    html = must_sub(r"\s*<!--MARKET-->.*?<!--/MARKET-->", "", html)
+    # 6. hosted page should never be indexed
     html = must_sub(r"<title>", '<meta name="robots" content="noindex, nofollow">\n<title>', html)
     for forbidden in ("btn-pause", "btn-flat", "WebSocket(", "__TOKEN__", "X-Token", "/api/halt", "/api/flatten",
-                      "/api/swing-capital"):
+                      "/api/swing-capital", "/api/market", "mk-card", "mkTick"):
         if forbidden in html:
             sys.exit(f"build failed: {forbidden!r} is still present in the hosted page")
     if "/api/snapshot" not in html:

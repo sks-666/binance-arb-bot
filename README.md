@@ -196,6 +196,16 @@ live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 e
   price (reason "account reset: fund changed"), its stats start again from zero, the other two accounts are untouched, and
   the old trades stay in the journal. The change is saved, so it survives a restart, and is announced on Telegram. It uses
   `POST /api/swing-capital`, guarded by the same per-run token as the pause and flatten buttons.
+* **Market panel (local dashboard).** Below the swing accounts, a Binance-style market view of USD-M futures: a candlestick
+  **chart** (1m to 1W, MA 7/25/99, volume, crosshair, mouse-wheel zoom) with the swing paper positions on that market drawn
+  as entry / stop / target lines; the **order book** (8 levels each side, size and running sum in USDT, spread, last and
+  mark price); recent **trades**; **top movers** (24h gainers, losers, volume among liquid USDT perpetuals; click one to
+  chart it); **Info** (24h stats, mark/index price, funding rate and countdown, open interest) and **Trading Data**
+  (hourly accounts long %, taker buy/sell ratio, open interest). The page asks the bot (`GET /api/market/...`), which
+  relays a fixed set of public, unsigned Binance requests with symbol/interval whitelists and 1 to 30 s caches
+  (`arbbot/market.py`), so an open page costs roughly 250 request-weight a minute and nothing in it can place an order. It
+  only polls while the tab is visible. Binance has no 1-second candles for futures, so the shortest interval is 1m. The
+  hosted read-only copies leave the panel out.
 * **Run only one of the two at a time.** Both write the same journal; they would agree, but you would get every alert twice.
 * **It is paper only and separate from the arbitrage book.** If the candle download fails the runner logs it and retries
   (30 s, doubling to 15 min); it can never stop the arbitrage bot that shares the process.

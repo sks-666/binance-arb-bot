@@ -89,6 +89,40 @@
   .sw-fund button { padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; font: inherit; cursor: pointer; }
   .sw-fund button:disabled { opacity: .5; cursor: default; }
   .sw-fund .msg { flex-basis: 100%; }
+  .mk-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 14px; padding: 14px 14px 0; align-items: start; }
+  .mk-grid.one { grid-template-columns: minmax(0, 1fr); padding-bottom: 14px; }
+  @media (max-width: 980px) { .mk-grid { grid-template-columns: minmax(0, 1fr); } }
+  .mk-box { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); min-width: 0; overflow: hidden; }
+  .mk-tabs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .mk-tab { background: none; border: 1px solid transparent; min-height: 28px; padding: 4px 10px; color: var(--muted); border-radius: 6px; font-size: 13px; font-weight: 600; }
+  .mk-tab[aria-selected="true"] { color: var(--text); background: var(--panel-2); border-color: var(--line); }
+  span.mk-tab { display: inline-flex; align-items: center; }
+  .mk-spread { margin-left: auto; color: var(--muted); font-size: 12px; padding-right: 4px; font-family: ui-monospace, Menlo, monospace; }
+  .mk-mv { margin-left: auto; display: inline-flex; gap: 4px; }
+  .mk-mv[hidden] { display: none; }
+  .mk-mv button, .mk-iv button { min-height: 26px; padding: 2px 8px; font-size: 12px; background: none; border-color: transparent; color: var(--muted); }
+  .mk-mv button[aria-pressed="true"], .mk-iv button[aria-pressed="true"] { color: var(--text); border-color: var(--line); background: var(--panel-2); }
+  .mk-bar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+  .mk-bar select { font: inherit; color: var(--text); padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); margin-left: 4px; }
+  .mk-note { margin-left: auto; font-size: 11.5px; }
+  .mk-legend { padding: 6px 10px 0; font: 12px/1.55 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); min-height: 46px; }
+  .mk-legend b { color: var(--text); font-weight: 650; }
+  #mk-canvas { display: block; width: 100%; height: 440px; cursor: crosshair; }
+  .mk-kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 1px; background: var(--line); }
+  .mk-kv > div { background: var(--panel); padding: 10px 12px; }
+  .mk-kv .l { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .6px; }
+  .mk-kv .v { font: 600 15px/1.4 ui-monospace, "SF Mono", Menlo, monospace; }
+  .bk-head, .bk-row { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 8px; padding: 2px 12px; position: relative; font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+  .bk-head { color: var(--muted); font: 11.5px/1.4 ui-sans-serif, -apple-system, "Segoe UI", sans-serif; padding-top: 8px; padding-bottom: 4px; }
+  .bk-head span, .bk-row span { text-align: right; position: relative; z-index: 1; }
+  .bk-head span:first-child, .bk-row span:first-child { text-align: left; }
+  .bk-row i { position: absolute; top: 1px; bottom: 1px; right: 0; opacity: .16; z-index: 0; }
+  .bk-ask span:first-child { color: var(--neg); } .bk-ask i { background: var(--neg); }
+  .bk-bid span:first-child { color: var(--pos); } .bk-bid i { background: var(--pos); }
+  .bk-mid { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 4px 0; }
+  .bk-mid .p { font: 650 20px/1.2 ui-monospace, "SF Mono", Menlo, monospace; }
+  .bk-mid .m { color: var(--muted); font: 12px ui-monospace, Menlo, monospace; }
+  #mk-movers tr { cursor: pointer; } #mk-movers tr:hover td { background: var(--panel-2); }
   td.why { white-space: normal; min-width: 240px; text-align: left; color: var(--muted); font-size: 12.5px; }
   th.why { text-align: left; }
   .side-long { color: var(--pos); font-weight: 650; } .side-short { color: var(--neg); font-weight: 650; }
@@ -163,6 +197,54 @@
       <div class="sw-note" id="sw-note"></div>
     </div>
   </section>
+
+  <!--MARKET-->
+  <section class="card" id="mk-card" aria-labelledby="h-market" style="margin-top:14px">
+    <div class="card-h"><h2 id="h-market">Market · Binance USD-M futures</h2><span class="hint" id="mk-hint">connecting…</span></div>
+    <div class="mk-grid">
+      <div class="mk-box">
+        <div class="mk-tabs" role="tablist" aria-label="Market views">
+          <button class="mk-tab" role="tab" data-tab="chart">Chart</button>
+          <button class="mk-tab" role="tab" data-tab="info">Info</button>
+          <button class="mk-tab" role="tab" data-tab="data">Trading Data</button>
+        </div>
+        <div class="mk-bar">
+          <label>Market <select id="mk-sym" aria-label="Market"></select></label>
+          <span class="mk-iv" id="mk-iv" role="group" aria-label="Candle interval"></span>
+          <span class="mk-note">wheel = zoom · lines = swing positions on this market</span>
+        </div>
+        <div id="mk-pane-chart">
+          <div class="mk-legend" id="mk-legend">Loading candles…</div>
+          <canvas id="mk-canvas" aria-label="Candlestick chart with moving averages and volume"></canvas>
+        </div>
+        <div id="mk-pane-info" hidden><div class="mk-kv" id="mk-info"><div class="empty">Loading…</div></div></div>
+        <div id="mk-pane-data" hidden>
+          <div class="tbl scroll mid"><table><thead><tr><th>Hour</th><th>Accounts long</th><th>Taker buy / sell</th><th>Open interest</th></tr></thead><tbody id="mk-data"></tbody></table></div>
+          <div class="sw-note" style="padding-top:8px">Binance's public sentiment data, last 12 hours: the share of accounts that are long, aggressive buying vs selling (above 1 = more buying), and the open interest in dollars.</div>
+        </div>
+      </div>
+      <div class="mk-box">
+        <div class="mk-tabs"><span class="mk-tab" aria-selected="true">Order Book</span><span class="mk-spread" id="bk-spread"></span></div>
+        <div class="bk-head"><span>Price (USDT)</span><span>Size (USDT)</span><span>Sum (USDT)</span></div>
+        <div id="bk-asks"></div>
+        <div class="bk-mid"><span class="p" id="bk-last">–</span><span class="m" id="bk-mark"></span></div>
+        <div id="bk-bids"></div>
+      </div>
+    </div>
+    <div class="mk-grid one">
+      <div class="mk-box">
+        <div class="mk-tabs" role="tablist" aria-label="Trades and movers">
+          <button class="mk-tab" role="tab" data-low="trades">Trades</button>
+          <button class="mk-tab" role="tab" data-low="movers">Top Movers</button>
+          <span class="mk-mv" id="mk-mv" hidden><button data-mv="gainers">Gainers</button><button data-mv="losers">Losers</button><button data-mv="volume">Volume</button></span>
+        </div>
+        <div id="mk-pane-trades" class="tbl scroll mid"><table><thead><tr><th style="text-align:left">Price (USDT)</th><th>Amount (USDT)</th><th>Time</th></tr></thead><tbody id="mk-trades"></tbody></table></div>
+        <div id="mk-pane-movers" class="tbl scroll mid" hidden><table><thead><tr><th style="text-align:left">Market</th><th>Last</th><th>24h</th><th>24h volume</th></tr></thead><tbody id="mk-movers"></tbody></table></div>
+      </div>
+    </div>
+    <div class="sw-note">Live public market data from Binance USD-M futures, relayed by this bot (read-only: nothing here can place an order). Click a top mover to chart it.</div>
+  </section>
+  <!--/MARKET-->
 
   <footer id="foot"></footer>
 </div>
@@ -356,6 +438,291 @@ $("sw-fund").addEventListener("click", async e => {
 });
 $("btn-pause").addEventListener("click", e => act(e.currentTarget.dataset.act || "halt"));
 $("btn-flat").addEventListener("click", () => { if (confirm("Close ALL open positions at market and pause entries?")) act("flatten"); });
+
+// ---- market panel: chart, order book, trades, movers, info (local page only; the hosted copies have no /api/market) ----
+const MK = { sym: "BTCUSDT", iv: "1h", tab: "chart", low: "trades", mv: "gainers", spacing: 8, k: [], book: null, trades: [],
+             info: null, data: null, movers: null, hover: -1, hoverY: 0, dp: 2, seq: 0, busy: {}, at: {}, okAt: 0, err: "", L: null };
+const MK_IVS = [["1m", "1m", 6e4], ["5m", "5m", 3e5], ["15m", "15m", 9e5], ["1h", "1H", 36e5], ["4h", "4H", 144e5], ["1d", "1D", 864e5], ["1w", "1W", 6048e5]];
+const MA_COLORS = { 7: "#f0b90b", 25: "#d946ef", 99: "#2dd4bf" };
+try {
+  const s = JSON.parse(localStorage.getItem("mk") || "{}");
+  if (/^[A-Z0-9]{2,20}USDT$/.test(s.sym)) MK.sym = s.sym;
+  if (MK_IVS.some(v => v[0] === s.iv)) MK.iv = s.iv;
+  if (["chart", "info", "data"].includes(s.tab)) MK.tab = s.tab;
+  if (["trades", "movers"].includes(s.low)) MK.low = s.low;
+  if (["gainers", "losers", "volume"].includes(s.mv)) MK.mv = s.mv;
+  if (s.spacing >= 3 && s.spacing <= 24) MK.spacing = s.spacing;
+} catch (_) { /* private window: defaults */ }
+function mkSave() { try { localStorage.setItem("mk", JSON.stringify({ sym: MK.sym, iv: MK.iv, tab: MK.tab, low: MK.low, mv: MK.mv, spacing: MK.spacing })); } catch (_) { } }
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function compact(v) { const a = Math.abs(v); return a >= 1e9 ? (v / 1e9).toFixed(2) + "B" : a >= 1e6 ? (v / 1e6).toFixed(2) + "M" : a >= 1e3 ? (v / 1e3).toFixed(2) + "K" : v.toFixed(2); }
+function fmtP(p) { return p == null ? "–" : p.toLocaleString(undefined, { minimumFractionDigits: MK.dp, maximumFractionDigits: MK.dp }); }
+function learnDp(prices) { let d = 0; for (const p of prices.slice(-60)) d = Math.max(d, (String(p).split(".")[1] || "").length); MK.dp = Math.min(8, d); }
+function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / p; return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * p; }
+function sma(vals, n) { const out = new Array(vals.length).fill(null); let s = 0; for (let i = 0; i < vals.length; i++) { s += vals[i]; if (i >= n) s -= vals[i - n]; if (i >= n - 1) out[i] = s / n; } return out; }
+function fmtT(ts) {
+  const d = new Date(ts), two = v => String(v).padStart(2, "0");
+  if (MK.iv === "1d" || MK.iv === "1w") return `${two(d.getMonth() + 1)}/${two(d.getDate())}`;
+  return d.getHours() === 0 && d.getMinutes() === 0 ? `${two(d.getMonth() + 1)}/${two(d.getDate())}` : `${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+async function mkGet(kind, params) {
+  const r = await fetch("/api/market/" + kind + "?" + new URLSearchParams(params || {}), { cache: "no-store" });
+  const d = await r.json().catch(() => ({ error: "HTTP " + r.status }));
+  if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+  return d;
+}
+function mkLines() {   // the swing paper positions (and waiting setups) on the charted market, drawn as price lines
+  const w = snap && snap.swing, out = [], accent = cssVar("--accent");
+  if (!w) return out;
+  for (const p of w.open || []) if (p.symbol === MK.sym) {
+    out.push({ px: p.entry, label: `${p.strategy} ${p.side} entry`, color: accent }, { px: p.stop, label: `${p.strategy} stop`, color: cssVar("--neg") });
+    if (p.target != null) out.push({ px: p.target, label: `${p.strategy} target`, color: cssVar("--pos") });
+  }
+  for (const s of w.setups || []) if (s.symbol === MK.sym) out.push({ px: s.near, label: `${s.strategy} ${s.side} setup`, color: cssVar("--warn") });
+  return out;
+}
+
+function drawChart() {
+  const cv = $("mk-canvas");
+  if (MK.tab !== "chart" || !cv.clientWidth) return;
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  const k = MK.k;
+  if (!k.length) { $("mk-legend").textContent = MK.err ? "No candles: " + MK.err : "Loading candles…"; return; }
+  const C = { pos: cssVar("--pos"), neg: cssVar("--neg"), line: cssVar("--line"), muted: cssVar("--muted"), text: cssVar("--text"), bg: cssVar("--panel") };
+  const axisW = 78, timeH = 22, top = 8, plotW = W - axisW, volH = Math.round((H - timeH) * 0.2), priceH = H - timeH - volH - top - 6;
+  const sp = MK.spacing, n = Math.max(10, Math.min(k.length, Math.floor(plotW / sp))), start = k.length - n, vis = k.slice(start);
+  const offX = plotW - n * sp, x = i => offX + (i + 0.5) * sp, bw = Math.max(1, Math.floor(sp * 0.7));
+  const closes = k.map(r => r[4]), mas = { 7: sma(closes, 7), 25: sma(closes, 25), 99: sma(closes, 99) };
+  let lo = Infinity, hi = -Infinity;
+  vis.forEach((r, i) => {
+    lo = Math.min(lo, r[3]); hi = Math.max(hi, r[2]);
+    for (const m of Object.values(mas)) { const v = m[start + i]; if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } }
+  });
+  const lines = mkLines().filter(l => l.px > lo * 0.85 && l.px < hi * 1.15);
+  for (const l of lines) { lo = Math.min(lo, l.px); hi = Math.max(hi, l.px); }
+  const pad = (hi - lo) * 0.06 || hi * 0.01; lo -= pad; hi += pad;
+  const y = p => top + (hi - p) / (hi - lo) * priceH;
+  MK.L = { start, n, sp, offX, plotW, top, priceH, lo, hi };
+  g.font = "11px ui-monospace, Menlo, monospace"; g.textBaseline = "middle"; g.lineWidth = 1;
+  // grid and axes
+  g.strokeStyle = C.line; g.fillStyle = C.muted;
+  const step = niceStep((hi - lo) / 6);
+  for (let p = Math.ceil(lo / step) * step; p <= hi; p += step) {
+    const yy = Math.round(y(p)) + 0.5;
+    g.beginPath(); g.moveTo(0, yy); g.lineTo(plotW, yy); g.stroke();
+    g.fillText(fmtP(p), plotW + 6, yy);
+  }
+  g.textAlign = "center";
+  const every = Math.max(1, Math.round(120 / sp));
+  for (let i = n - 1; i >= 0; i -= every) {
+    const xx = Math.round(x(i)) + 0.5;
+    g.beginPath(); g.moveTo(xx, top); g.lineTo(xx, H - timeH); g.stroke();
+    g.fillText(fmtT(vis[i][0]), xx, H - timeH / 2);
+  }
+  g.textAlign = "left";
+  g.beginPath(); g.moveTo(plotW + 0.5, 0); g.lineTo(plotW + 0.5, H - timeH); g.moveTo(0, H - timeH + 0.5); g.lineTo(W, H - timeH + 0.5); g.stroke();
+  // volume
+  const vmax = Math.max(...vis.map(r => r[5])) || 1, vBase = H - timeH;
+  g.globalAlpha = 0.45;
+  vis.forEach((r, i) => { g.fillStyle = r[4] >= r[1] ? C.pos : C.neg; const h = r[5] / vmax * (volH - 4); g.fillRect(Math.round(x(i) - bw / 2), vBase - h, bw, h); });
+  g.globalAlpha = 1;
+  // candles
+  vis.forEach((r, i) => {
+    const up = r[4] >= r[1], xx = Math.round(x(i)) + 0.5;
+    g.strokeStyle = g.fillStyle = up ? C.pos : C.neg;
+    g.beginPath(); g.moveTo(xx, y(r[2])); g.lineTo(xx, y(r[3])); g.stroke();
+    const y1 = y(Math.max(r[1], r[4])), y2 = y(Math.min(r[1], r[4]));
+    g.fillRect(Math.round(x(i) - bw / 2), Math.round(y1), bw, Math.max(1, Math.round(y2 - y1)));
+  });
+  // moving averages
+  g.lineWidth = 1.3;
+  for (const [len, m] of Object.entries(mas)) {
+    g.strokeStyle = MA_COLORS[len]; g.beginPath(); let on = false;
+    for (let i = 0; i < n; i++) { const v = m[start + i]; if (v == null) continue; on ? g.lineTo(x(i), y(v)) : g.moveTo(x(i), y(v)); on = true; }
+    g.stroke();
+  }
+  g.lineWidth = 1;
+  const tag = (yy, text, bg, fg) => { g.fillStyle = bg; g.fillRect(plotW + 1, yy - 9, axisW - 1, 18); g.fillStyle = fg; g.fillText(text, plotW + 6, yy); };
+  // swing position lines
+  g.setLineDash([6, 4]);
+  for (const l of lines) {
+    const yy = Math.round(y(l.px)) + 0.5;
+    g.strokeStyle = l.color; g.beginPath(); g.moveTo(0, yy); g.lineTo(plotW, yy); g.stroke();
+    g.fillStyle = l.color; g.fillText(l.label, 6, yy - 8);
+    tag(yy, fmtP(l.px), l.color, "#0b0f14");
+  }
+  // last price
+  const last = vis[n - 1], up = last[4] >= last[1], ly = Math.round(y(last[4])) + 0.5;
+  g.strokeStyle = up ? C.pos : C.neg; g.setLineDash([2, 3]);
+  g.beginPath(); g.moveTo(0, ly); g.lineTo(plotW, ly); g.stroke();
+  g.setLineDash([]);
+  tag(ly, fmtP(last[4]), up ? C.pos : C.neg, "#0b0f14");
+  // crosshair
+  const hv = MK.hover >= 0 && MK.hover < n ? MK.hover : -1;
+  if (hv >= 0) {
+    const xx = Math.round(x(hv)) + 0.5, yy = Math.round(MK.hoverY) + 0.5;
+    g.strokeStyle = C.muted; g.setLineDash([3, 3]);
+    g.beginPath(); g.moveTo(xx, top); g.lineTo(xx, H - timeH); g.stroke();
+    if (MK.hoverY > top && MK.hoverY < top + priceH) { g.beginPath(); g.moveTo(0, yy); g.lineTo(plotW, yy); g.stroke(); tag(yy, fmtP(hi - (MK.hoverY - top) / priceH * (hi - lo)), C.muted, C.bg); }
+    g.setLineDash([]);
+    const t = new Date(vis[hv][0]).toLocaleString([], { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const tw = g.measureText(t).width + 12;
+    g.fillStyle = C.muted; g.fillRect(xx - tw / 2, H - timeH + 1, tw, timeH - 2);
+    g.fillStyle = C.bg; g.textAlign = "center"; g.fillText(t, xx, H - timeH / 2); g.textAlign = "left";
+  }
+  // legend: the hovered candle, else the latest
+  const r = vis[hv >= 0 ? hv : n - 1], idx = start + (hv >= 0 ? hv : n - 1), ch = r[4] - r[1], c = ch >= 0 ? "pos" : "neg";
+  const ivLabel = MK_IVS.find(v => v[0] === MK.iv)[1];
+  const ma = len => mas[len][idx] == null ? "–" : fmtP(mas[len][idx]);
+  $("mk-legend").innerHTML = `<b>${esc(MK.sym)} Perpetual</b> · ${ivLabel} · Binance &nbsp; O <span class="${c}">${fmtP(r[1])}</span> H <span class="${c}">${fmtP(r[2])}</span> L <span class="${c}">${fmtP(r[3])}</span> C <span class="${c}">${fmtP(r[4])}</span> <span class="${c}">${ch >= 0 ? "+" : ""}${fmtP(ch)} (${(ch / r[1] * 100).toFixed(2)}%)</span><br>` +
+    `<span style="color:${MA_COLORS[7]}">MA(7) ${ma(7)}</span> &nbsp; <span style="color:${MA_COLORS[25]}">MA(25) ${ma(25)}</span> &nbsp; <span style="color:${MA_COLORS[99]}">MA(99) ${ma(99)}</span> &nbsp; Vol ${compact(r[5])} · ${compact(r[6])} USDT`;
+}
+
+function renderBook() {
+  const b = MK.book;
+  if (!b) { $("bk-asks").innerHTML = $("bk-bids").innerHTML = ""; $("bk-spread").textContent = ""; renderBookMid(); return; }
+  const rows = side => { let s = 0; return side.slice(0, 8).map(([p, q]) => { const u = p * q; s += u; return [p, u, s]; }); };
+  const asks = rows(b.asks), bids = rows(b.bids), max = Math.max(asks.length ? asks[asks.length - 1][2] : 0, bids.length ? bids[bids.length - 1][2] : 0) || 1;
+  const row = (cls, [p, u, sum]) => `<div class="bk-row ${cls}"><i style="width:${(sum / max * 100).toFixed(1)}%"></i><span>${fmtP(p)}</span><span>${compact(u)}</span><span>${compact(sum)}</span></div>`;
+  $("bk-asks").innerHTML = asks.slice().reverse().map(r => row("bk-ask", r)).join("");
+  $("bk-bids").innerHTML = bids.map(r => row("bk-bid", r)).join("");
+  $("bk-spread").textContent = b.asks.length && b.bids.length ? "spread " + fmtP(b.asks[0][0] - b.bids[0][0]) : "";
+  renderBookMid();
+}
+function renderBookMid() {
+  const t = MK.trades, b = MK.book, el = $("bk-last");
+  const last = t.length ? t[0].price : b && b.asks.length && b.bids.length ? (b.asks[0][0] + b.bids[0][0]) / 2 : null;
+  const prev = t.find(x => x.price !== last);
+  const up = !prev || last >= prev.price;
+  el.textContent = last == null ? "–" : fmtP(last) + (prev ? (up ? " ↑" : " ↓") : "");
+  el.className = "p " + (prev ? (up ? "pos" : "neg") : "");
+  $("bk-mark").textContent = MK.info && MK.info.symbol === MK.sym ? "mark " + fmtP(MK.info.mark) : "";
+}
+function renderTrades() {
+  $("mk-trades").innerHTML = MK.trades.length ? MK.trades.map(t =>
+    `<tr><td class="n ${t.sell ? "neg" : "pos"}" style="text-align:left">${fmtP(t.price)}</td><td class="n">${compact(t.usd)}</td><td class="n mut">${new Date(t.ts).toLocaleTimeString([], { hour12: false })}</td></tr>`
+  ).join("") : `<tr><td colspan="3" class="empty">${MK.err ? esc(MK.err) : "Loading trades…"}</td></tr>`;
+}
+function renderMovers() {
+  document.querySelectorAll("#mk-mv button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mv === MK.mv)));
+  const rows = MK.movers ? MK.movers[MK.mv] : null;
+  $("mk-movers").innerHTML = !rows ? `<tr><td colspan="4" class="empty">Loading…</td></tr>` : rows.map(r =>
+    `<tr data-sym="${esc(r.symbol)}" title="Chart ${esc(r.symbol)}"><td class="sym" style="text-align:left">${esc(r.symbol.replace(/USDT$/, ""))}</td><td class="n">${price(r.last)}</td><td class="n ${cls(r.change_pct)}">${sg(r.change_pct, 2)}%</td><td class="n">${compact(r.quote_volume)}</td></tr>`
+  ).join("");
+}
+function renderInfo() {
+  const i = MK.info;
+  if (!i || i.symbol !== MK.sym) { $("mk-info").innerHTML = `<div class="empty">${MK.err ? esc(MK.err) : "Loading…"}</div>`; return; }
+  const kv = (l, v, c) => `<div><div class="l">${l}</div><div class="v ${c || ""}">${v}</div></div>`;
+  $("mk-info").innerHTML = kv("Last price", fmtP(i.last)) + kv("24h change", sg(i.change_pct, 2) + "%", cls(i.change_pct)) +
+    kv("24h high", fmtP(i.high)) + kv("24h low", fmtP(i.low)) + kv("24h volume", compact(i.volume) + " " + esc(i.symbol.replace(/USDT$/, ""))) +
+    kv("24h volume (USDT)", compact(i.quote_volume)) + kv("Mark price", fmtP(i.mark)) + kv("Index price", fmtP(i.index)) +
+    kv("Funding rate", (i.funding_rate * 100).toFixed(4) + "%", cls(-i.funding_rate)) + kv("Next funding in", dur((i.next_funding - Date.now()) / 1000)) +
+    kv("Open interest", compact(i.open_interest) + " " + esc(i.symbol.replace(/USDT$/, ""))) + kv("Open interest (USDT)", compact(i.open_interest_usd));
+}
+function renderData() {
+  const d = MK.data;
+  $("mk-data").innerHTML = !d || d.symbol !== MK.sym ? `<tr><td colspan="4" class="empty">${MK.err ? esc(MK.err) : "Loading…"}</td></tr>` : d.rows.map(r =>
+    `<tr><td class="mut">${new Date(r.ts).toLocaleString([], { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</td><td class="n">${r.long_pct == null ? "–" : r.long_pct.toFixed(1) + "%"}</td><td class="n ${r.taker_ratio == null ? "" : r.taker_ratio >= 1 ? "pos" : "neg"}">${r.taker_ratio == null ? "–" : r.taker_ratio.toFixed(3)}</td><td class="n">${r.oi_usd == null ? "–" : "$" + compact(r.oi_usd)}</td></tr>`
+  ).join("");
+}
+function patchLast() {   // move the forming candle with the latest trade between candle refreshes
+  const k = MK.k, t = MK.trades[0], ms = MK_IVS.find(v => v[0] === MK.iv)[2];
+  if (!k.length || !t) return;
+  const c = k[k.length - 1];
+  if (t.ts >= c[0] && t.ts < c[0] + ms) { c[4] = t.price; c[2] = Math.max(c[2], t.price); c[3] = Math.min(c[3], t.price); drawChart(); }
+}
+
+const MK_TASKS = {
+  klines: { every: 5000, run: async s => { const k = await mkGet("klines", { symbol: s, interval: MK.iv }); return () => { MK.k = k; learnDp(k.map(r => r[4])); drawChart(); }; } },
+  depth: { every: 2000, run: async s => { const b = await mkGet("depth", { symbol: s }); return () => { MK.book = b; renderBook(); }; } },
+  trades: { every: 3000, run: async s => { const t = await mkGet("trades", { symbol: s }); return () => { MK.trades = t; renderTrades(); renderBookMid(); patchLast(); }; } },
+  info: { every: 5000, run: async s => { const i = await mkGet("info", { symbol: s }); return () => { MK.info = i; renderInfo(); renderBookMid(); }; } },
+  data: { every: 30000, when: () => MK.tab === "data", run: async s => { const d = await mkGet("data", { symbol: s }); return () => { MK.data = d; renderData(); }; } },
+  movers: { every: 15000, when: () => MK.low === "movers", run: async () => { const m = await mkGet("movers"); return () => { MK.movers = m; renderMovers(); }; } },
+};
+function mkTick() {
+  if (document.hidden) return;
+  mkSyncSymbols();
+  const now = Date.now();
+  for (const [name, t] of Object.entries(MK_TASKS)) {
+    if ((t.when && !t.when()) || MK.busy[name] === MK.seq || now - (MK.at[name] || 0) < t.every) continue;
+    const seq = MK.seq;
+    MK.busy[name] = seq; MK.at[name] = now;
+    t.run(MK.sym)
+      .then(apply => { if (seq === MK.seq) { apply(); MK.okAt = Date.now(); MK.err = ""; mkHint(); } })
+      .catch(e => { if (seq === MK.seq) { MK.err = e.message; mkHint(); } })
+      .finally(() => { if (MK.busy[name] === seq) MK.busy[name] = null; });
+  }
+  mkHint();
+}
+function mkHint() {
+  $("mk-hint").textContent = MK.err ? "Binance data unavailable: " + MK.err
+    : MK.okAt ? `live · ${MK.sym} · updated ${dur((Date.now() - MK.okAt) / 1000)} ago` : "connecting…";
+}
+let mkSymKey = "";
+function mkSyncSymbols() {
+  const list = (snap && snap.swing && snap.swing.symbols && snap.swing.symbols.length) ? snap.swing.symbols.slice() : ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"];
+  if (!list.includes(MK.sym)) list.unshift(MK.sym);
+  const key = list.join(",") + "|" + MK.sym;
+  if (key === mkSymKey) return;
+  mkSymKey = key;
+  $("mk-sym").innerHTML = list.map(s => `<option value="${esc(s)}"${s === MK.sym ? " selected" : ""}>${esc(s.replace(/USDT$/, ""))} · ${esc(s)}</option>`).join("");
+}
+function mkReset() { MK.seq++; MK.at = {}; MK.err = ""; MK.hover = -1; mkSave(); }
+function mkSelect(sym) {
+  if (sym === MK.sym) return;
+  MK.sym = sym; MK.k = []; MK.book = null; MK.trades = []; MK.info = null; MK.data = null; MK.dp = 2;
+  mkReset(); mkSyncSymbols(); renderBook(); renderTrades(); renderInfo(); renderData(); drawChart(); mkTick();
+}
+function mkShowTabs() {
+  document.querySelectorAll(".mk-tab[data-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === MK.tab)));
+  document.querySelectorAll(".mk-tab[data-low]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.low === MK.low)));
+  for (const t of ["chart", "info", "data"]) $("mk-pane-" + t).hidden = t !== MK.tab;
+  $("mk-pane-trades").hidden = MK.low !== "trades"; $("mk-pane-movers").hidden = MK.low !== "movers"; $("mk-mv").hidden = MK.low !== "movers";
+  $("mk-iv").style.visibility = MK.tab === "chart" ? "visible" : "hidden";
+  document.querySelectorAll("#mk-iv button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.iv === MK.iv)));
+}
+$("mk-iv").innerHTML = MK_IVS.map(([v, label]) => `<button type="button" data-iv="${v}">${label}</button>`).join("");
+$("mk-iv").addEventListener("click", e => {
+  const v = e.target.dataset.iv;
+  if (!v || v === MK.iv) return;
+  MK.iv = v; MK.k = []; MK.at.klines = 0; MK.seq++; MK.err = ""; MK.hover = -1; mkSave(); mkShowTabs(); drawChart(); mkTick();
+});
+document.querySelectorAll(".mk-tab[data-tab]").forEach(b => b.addEventListener("click", () => {
+  MK.tab = b.dataset.tab; mkSave(); mkShowTabs();
+  if (MK.tab === "chart") drawChart(); else if (MK.tab === "info") renderInfo(); else { MK.at.data = 0; renderData(); }
+  mkTick();
+}));
+document.querySelectorAll(".mk-tab[data-low]").forEach(b => b.addEventListener("click", () => {
+  MK.low = b.dataset.low; mkSave(); mkShowTabs(); if (MK.low === "movers") { renderMovers(); MK.at.movers = 0; } mkTick();
+}));
+$("mk-mv").addEventListener("click", e => { if (e.target.dataset.mv) { MK.mv = e.target.dataset.mv; mkSave(); renderMovers(); } });
+$("mk-movers").addEventListener("click", e => { const tr = e.target.closest("tr[data-sym]"); if (tr) mkSelect(tr.dataset.sym); });
+$("mk-sym").addEventListener("change", e => mkSelect(e.target.value));
+const cvs = $("mk-canvas");
+cvs.addEventListener("mousemove", e => {
+  const L = MK.L; if (!L) return;
+  const rect = cvs.getBoundingClientRect(), mx = e.clientX - rect.left;
+  MK.hover = mx > L.plotW ? -1 : Math.max(0, Math.min(L.n - 1, Math.floor((mx - L.offX) / L.sp)));
+  MK.hoverY = e.clientY - rect.top;
+  requestAnimationFrame(drawChart);
+});
+cvs.addEventListener("mouseleave", () => { MK.hover = -1; requestAnimationFrame(drawChart); });
+cvs.addEventListener("wheel", e => {
+  e.preventDefault();
+  MK.spacing = Math.max(3, Math.min(24, MK.spacing * (e.deltaY > 0 ? 0.9 : 1.1))); mkSave(); requestAnimationFrame(drawChart);
+}, { passive: false });
+new ResizeObserver(() => requestAnimationFrame(drawChart)).observe(cvs);
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => requestAnimationFrame(drawChart));
+document.addEventListener("visibilitychange", () => { if (!document.hidden) mkTick(); });
+mkShowTabs(); renderTrades(); renderBookMid();
+setInterval(mkTick, 1000);
+mkTick();
 
 function connect() {
   ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);

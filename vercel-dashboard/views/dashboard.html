@@ -90,6 +90,40 @@
   .sw-fund button { padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; font: inherit; cursor: pointer; }
   .sw-fund button:disabled { opacity: .5; cursor: default; }
   .sw-fund .msg { flex-basis: 100%; }
+  .mk-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); gap: 14px; padding: 14px 14px 0; align-items: start; }
+  .mk-grid.one { grid-template-columns: minmax(0, 1fr); padding-bottom: 14px; }
+  @media (max-width: 980px) { .mk-grid { grid-template-columns: minmax(0, 1fr); } }
+  .mk-box { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); min-width: 0; overflow: hidden; }
+  .mk-tabs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .mk-tab { background: none; border: 1px solid transparent; min-height: 28px; padding: 4px 10px; color: var(--muted); border-radius: 6px; font-size: 13px; font-weight: 600; }
+  .mk-tab[aria-selected="true"] { color: var(--text); background: var(--panel-2); border-color: var(--line); }
+  span.mk-tab { display: inline-flex; align-items: center; }
+  .mk-spread { margin-left: auto; color: var(--muted); font-size: 12px; padding-right: 4px; font-family: ui-monospace, Menlo, monospace; }
+  .mk-mv { margin-left: auto; display: inline-flex; gap: 4px; }
+  .mk-mv[hidden] { display: none; }
+  .mk-mv button, .mk-iv button { min-height: 26px; padding: 2px 8px; font-size: 12px; background: none; border-color: transparent; color: var(--muted); }
+  .mk-mv button[aria-pressed="true"], .mk-iv button[aria-pressed="true"] { color: var(--text); border-color: var(--line); background: var(--panel-2); }
+  .mk-bar { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+  .mk-bar select { font: inherit; color: var(--text); padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); margin-left: 4px; }
+  .mk-note { margin-left: auto; font-size: 11.5px; }
+  .mk-legend { padding: 6px 10px 0; font: 12px/1.55 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); min-height: 46px; }
+  .mk-legend b { color: var(--text); font-weight: 650; }
+  #mk-canvas { display: block; width: 100%; height: 440px; cursor: crosshair; }
+  .mk-kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 1px; background: var(--line); }
+  .mk-kv > div { background: var(--panel); padding: 10px 12px; }
+  .mk-kv .l { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .6px; }
+  .mk-kv .v { font: 600 15px/1.4 ui-monospace, "SF Mono", Menlo, monospace; }
+  .bk-head, .bk-row { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 8px; padding: 2px 12px; position: relative; font: 12.5px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+  .bk-head { color: var(--muted); font: 11.5px/1.4 ui-sans-serif, -apple-system, "Segoe UI", sans-serif; padding-top: 8px; padding-bottom: 4px; }
+  .bk-head span, .bk-row span { text-align: right; position: relative; z-index: 1; }
+  .bk-head span:first-child, .bk-row span:first-child { text-align: left; }
+  .bk-row i { position: absolute; top: 1px; bottom: 1px; right: 0; opacity: .16; z-index: 0; }
+  .bk-ask span:first-child { color: var(--neg); } .bk-ask i { background: var(--neg); }
+  .bk-bid span:first-child { color: var(--pos); } .bk-bid i { background: var(--pos); }
+  .bk-mid { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 4px 0; }
+  .bk-mid .p { font: 650 20px/1.2 ui-monospace, "SF Mono", Menlo, monospace; }
+  .bk-mid .m { color: var(--muted); font: 12px ui-monospace, Menlo, monospace; }
+  #mk-movers tr { cursor: pointer; } #mk-movers tr:hover td { background: var(--panel-2); }
   td.why { white-space: normal; min-width: 240px; text-align: left; color: var(--muted); font-size: 12.5px; }
   th.why { text-align: left; }
   .side-long { color: var(--pos); font-weight: 650; } .side-short { color: var(--neg); font-weight: 650; }
