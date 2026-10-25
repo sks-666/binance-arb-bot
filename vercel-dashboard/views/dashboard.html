@@ -85,6 +85,13 @@
   .sw-grid .tbl { border: 1px solid var(--line); border-radius: 10px; }
   .sw-note { padding: 0 14px 12px; color: var(--muted); font-size: 12px; }
   #sw-accts { padding: 14px 14px 0; margin-bottom: 14px; }
+  .sw-right { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 14px; }
+  .sw-power { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 650; }
+  .sw-toggle { width: 42px; height: 24px; min-height: 0; padding: 0; border-radius: 999px; position: relative; background: var(--line); border: 1px solid var(--line); }
+  .sw-toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .sw-toggle[aria-checked="true"] { background: var(--pos); border-color: var(--pos); }
+  .sw-toggle[aria-checked="true"]::after { left: 20px; }
+  .sw-toggle:disabled { opacity: .6; cursor: wait; }
   .sw-fund { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 0 14px 14px; font-size: 12.5px; color: var(--muted); }
   .sw-fund label { display: inline-flex; align-items: center; gap: 6px; text-transform: capitalize; }
   .sw-fund input { width: 110px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; font: inherit; }
@@ -234,7 +241,9 @@
   </div>
 
   <section class="card" id="sw-card" aria-labelledby="h-swing" style="margin-top:14px">
-    <div class="card-h"><h2 id="h-swing">Swing paper accounts · trend · swing · SMC</h2><span class="hint" id="sw-hint"></span></div>
+    <div class="card-h"><h2 id="h-swing">Swing paper accounts · trend · swing · SMC</h2>
+      <div class="sw-right"><span class="hint" id="sw-hint"></span>
+        <span class="sw-power" id="sw-power" hidden><span id="sw-power-l"></span><button type="button" class="sw-toggle" id="sw-toggle" role="switch" aria-checked="true" aria-label="Swing toolkit on or off"></button></span></div></div>
     <div id="sw-off" class="empty" hidden>The swing toolkit is not running in this bot. Start it with <code>--swing</code> to paper-trade the trend, swing and Smart Money strategies.</div>
     <div id="sw-on" hidden>
       <div class="kpis" id="sw-accts"></div>
@@ -311,6 +320,16 @@ function renderMarkets() {
   }).join("");
 }
 
+// The on/off switch, like the fund editor, exists only on the local page (it needs the control token).
+function renderPower(w) {
+  const box = $("sw-power");
+  if (typeof TOKEN === "undefined" || !w || w.enabled === undefined) { box.hidden = true; return; }
+  box.hidden = false;
+  $("sw-toggle").setAttribute("aria-checked", String(w.enabled));
+  $("sw-power-l").textContent = w.enabled ? "Toolkit ON" : "Toolkit OFF";
+  $("sw-power-l").className = w.enabled ? "pos" : "warn";
+}
+
 // The fund editor exists only on the local page (it needs the control token); the hosted copy has no TOKEN and stays read-only.
 function renderFunds(w) {
   const box = $("sw-fund");
@@ -331,7 +350,7 @@ function renderFunds(w) {
 
 function renderSwing() {
   const w = snap.swing, off = $("sw-off"), on = $("sw-on");
-  if (!w) { off.hidden = false; on.hidden = true; $("sw-hint").textContent = ""; return; }
+  if (!w) { off.hidden = false; on.hidden = true; $("sw-hint").textContent = ""; renderPower(null); return; }
   off.hidden = true; on.hidden = false;
   const coin = s => esc(s.replace(/USDT$/, "")), px = v => v == null ? "–" : price(v);
   const side = s => `<span class="side-${esc(s)}">${esc(s.toUpperCase())}</span>`;
@@ -352,6 +371,8 @@ function renderSwing() {
     `<tr title="${esc(new Date(t.closed_at).toISOString().slice(0, 16).replace("T", " "))} UTC"><td class="sym">${esc(t.strategy)}</td><td class="sym">${coin(t.symbol)}</td><td>${side(t.side)}</td><td class="n">${px(t.entry)} → ${px(t.exit)}</td><td class="n ${cls(t.pnl)}">${money(t.pnl)}</td><td class="n ${cls(t.r)}">${sg(t.r, 2)}R</td><td class="mut">${esc(t.reason)}</td></tr>`
   ).join("") : `<tr><td colspan="7" class="empty">No closed swing trades yet.</td></tr>`;
   renderFunds(w);
+  renderPower(w);
+  if (w.enabled === false) $("sw-hint").textContent = `⏸ OFF since ${new Date(w.off_since).toISOString().slice(0, 16).replace("T", " ")} UTC · ` + $("sw-hint").textContent;
   $("sw-note").textContent = `Each account risks ${w.risk_pct}% of its own equity per trade. Paper only: nothing here places an order. They decide on closed ${w.interval} candles and fill at the next open, so most of the time they simply wait.` + (w.symbols.length > 8 ? ` Markets: ${w.symbols.map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (Object.keys(w.unavailable || {}).length ? ` Skipped (no usable candles): ${Object.keys(w.unavailable).map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (w.error ? ` The last refresh failed: ${w.error}` : "");
 }
 

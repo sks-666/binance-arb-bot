@@ -89,7 +89,8 @@ class Result:
 def run_backtest(data: dict[str, Series], make_strategy: Callable[[], Strategy], risk: RiskCfg | None = None,
                  costs: CostCfg | None = None, capital: float = 10_000.0, bar_ms: int = 14_400_000,
                  funding: dict[str, list[tuple[int, float]]] | None = None, close_at_end: bool = True,
-                 start_ts: int = 0, partial_last: bool | set[str] = False) -> Result:
+                 start_ts: int = 0, partial_last: bool | set[str] = False,
+                 paused: list[tuple[int, int | None]] | tuple = ()) -> Result:
     """`funding`: real funding events per symbol, [(time ms, rate)]; a positive rate means longs pay shorts, and a short
     RECEIVES it. A symbol without events falls back to the flat `costs.funding_bps_8h` charge.
 
@@ -99,8 +100,13 @@ def run_backtest(data: dict[str, Series], make_strategy: Callable[[], Strategy],
       start_ts            no entries before this time (older candles only warm the indicators up);
       partial_last        the final candle is still FORMING (True for every coin, or the set of coins it applies to): only
                           its open is known, so it can fill orders and trigger a stop that gapped, nothing more (no
-                          decision is ever taken on an unfinished candle)."""
+                          decision is ever taken on an unfinished candle);
+      paused              [(from ms, to ms or None)]: the toolkit was switched OFF then, so no new idea is taken at a
+                          close and no order fills at an open inside these windows; open positions keep their stops,
+                          targets and exits as usual."""
     risk, costs = risk or RiskCfg(), costs or CostCfg()
+    windows = [(int(a), math.inf if b is None else int(b)) for a, b in paused]
+    off = lambda t: any(a <= t < b for a, b in windows)  # noqa: E731
     fund_ts = {sym: [t for t, _ in ev] for sym, ev in (funding or {}).items()}
     fee, slip = costs.fee_bps / 1e4, costs.slippage_bps / 1e4
     fund_per_bar = costs.funding_bps_8h / 1e4 * bar_ms / (8 * 3_600_000)
@@ -152,7 +158,9 @@ def run_backtest(data: dict[str, Series], make_strategy: Callable[[], Strategy],
 
             # 1. an order decided at the previous close fills at this open
             st = pending.pop(sym, None)
-            if st is not None and sym not in pos:
+            if st is not None and sym not in pos and windows and off(ts):
+                res.skipped["toolkit switched off"] += 1
+            elif st is not None and sym not in pos:
                 sgn = 1 if st.side == "long" else -1
                 fill = o * (1 + sgn * slip)
                 eq = equity_now()
@@ -210,7 +218,8 @@ def run_backtest(data: dict[str, Series], make_strategy: Callable[[], Strategy],
                 if exit_now:
                     p.exit_next = why
             # 5. a new idea, to be filled at the next open
-            if sym not in pos and ts >= start_ts and (i + 1 < len(s) or not close_at_end):
+            if (sym not in pos and ts >= start_ts and (i + 1 < len(s) or not close_at_end)
+                    and not (windows and off(ts + bar_ms))):          # the idea is taken at this candle's close
                 setup = strat.entry(i)
                 if setup is not None:
                     pending[sym] = setup

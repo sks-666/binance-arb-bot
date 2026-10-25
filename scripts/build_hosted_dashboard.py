@@ -89,7 +89,7 @@ def main() -> None:
     # 6. hosted page should never be indexed
     html = must_sub(r"<title>", '<meta name="robots" content="noindex, nofollow">\n<title>', html)
     for forbidden in ("btn-pause", "btn-flat", "WebSocket(", "__TOKEN__", "X-Token", "/api/halt", "/api/flatten",
-                      "/api/swing-capital", "/api/market", "mk-card", "mkTick", "/api/paper", 'id="ot-buy"', "pfPoll"):
+                      "/api/swing-capital", "/api/market", "mk-card", "mkTick", "/api/paper", 'id="ot-buy"', "pfPoll", "/api/swing-power"):
         if forbidden in html:
             sys.exit(f"build failed: {forbidden!r} is still present in the hosted page")
     if "/api/snapshot" not in html:

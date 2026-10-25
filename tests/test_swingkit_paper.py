@@ -87,6 +87,21 @@ class LiveModeTests(unittest.TestCase):
         res, _ = self.live(rows, {1: setup(1), 4: setup(4)}, start_ts=s.ts[3])
         self.assertEqual([p["entry_ts"] for p in res.open_positions], [s.ts[5]])   # the candle-1 idea is ignored
 
+    def test_no_entry_while_switched_off(self):
+        res, _ = self.live(QUIET, {1: setup(1)}, paused=[(2 * H4, None)])        # off from candle 1's close
+        self.assertEqual((res.open_positions, res.pending), ([], {}))
+
+    def test_an_open_position_still_exits_while_switched_off(self):
+        rows = QUIET + [(100, 101, 99, 100), (90, 90, 90, 90)]
+        res, _ = self.live(rows, {1: setup(1)}, paused=[(3 * H4, None)])         # in at candle 2, off from candle 3
+        self.assertEqual([t.reason_out for t in res.trades], ["stop"])
+
+    def test_trading_resumes_after_the_off_window(self):
+        rows = QUIET * 2
+        res, _ = self.live(rows, {1: setup(1), 3: setup(3)}, paused=[(2 * H4, 3 * H4)])
+        self.assertEqual([p["entry_ts"] for p in res.open_positions], [4 * H4])  # only the idea after the window
+        self.assertEqual(self.live(rows, {1: setup(1)})[0].open_positions[0]["entry_ts"], 2 * H4)  # no window: taken
+
 
 def one_bar_clock(k: int, frac: float = 0.5):
     return lambda: (T0 + (k + frac) * BAR) / 1000.0
@@ -298,6 +313,54 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
                          {"trend": 5_000.0, "swing": 10_000.0})
         self.assertIn("5,000", r.status_text())
 
+    async def test_switching_off_blocks_new_entries_and_setup_alerts_and_is_remembered(self):
+        r = self.runner(2000)
+        await r.refresh()
+        self.assertTrue(r.enabled)
+        self.assertIn("OFF", await r.set_enabled(False))                         # before candle 2000 closes
+        self.assertIn("already OFF", await r.set_enabled(False))
+        self.assertTrue(any("Swing toolkit OFF" in m for m in self.sent))
+        self.sent.clear()
+        self.api.candles.append(candle(2001))                                    # the idea at 2000's close comes and goes
+        r = self.runner(2001)
+        self.assertFalse(r.enabled)                                              # a restarted bot stays off
+        await r.refresh()
+        self.assertEqual((self.sent, r.results["trend"].open_positions), ([], []))
+        self.assertEqual(self.journal.trades(mode="paper"), [])
+        self.assertIn("swing toolkit is OFF (since", r.setups_text())
+        self.assertIn("OFF since", r.status_text())
+        s = r.snapshot()
+        self.assertEqual((s["enabled"], s["off_since"]), (False, int(one_bar_clock(2000)() * 1000)))
+        self.assertIn("ON", await r.set_enabled(True))
+        self.assertTrue(self.runner(2001).enabled)
+        self.assertEqual(self.journal.trades(mode="paper"), [])                  # the skipped idea is not back-filled
+        self.assertEqual(json.loads(self.journal.get_state("paper_off"))[0][1], int(one_bar_clock(2001)() * 1000))
+
+    async def test_an_open_position_keeps_its_stop_while_off(self):
+        await self.runner(2000).refresh()
+        self.api.candles.append(candle(2001))
+        r = self.runner(2001)
+        await r.refresh()
+        self.assertEqual(len(r.results["trend"].open_positions), 1)
+        await r.set_enabled(False)
+        self.api.candles += [candle(2002), candle(2003), candle(2004)]
+        self.api.candles[2003] = Candle(candle(2003).ts, 120.0, 121.0, 100.0, 105.0, 1.0)   # dives through the stop
+        r = self.runner(2004)
+        await r.refresh()
+        row = self.journal.trades(mode="paper")[0]
+        self.assertEqual((row["status"], row["reason_out"]), ("closed", "stop"))
+        self.assertTrue(any("SWING PAPER EXIT" in m for m in self.sent))
+
+    async def test_telegram_swing_on_off(self):
+        from types import SimpleNamespace
+        h = CommandHandler(SimpleNamespace(), "T")
+        self.assertIn("isn't running", await h.reply("/swing off"))
+        h.swing = self.runner(2000)
+        self.assertIn("Swing toolkit OFF", await h.reply("/swing off"))
+        self.assertFalse(h.swing.enabled)
+        self.assertIn("Swing toolkit ON", await h.reply("/swing ON"))
+        self.assertTrue(h.swing.enabled)
+
     async def test_telegram_commands_read_the_runner(self):
         from tests.test_commands import build, warm
         eng = build()
@@ -399,7 +462,12 @@ class FundEndpointTests(unittest.IsolatedAsyncioTestCase):
                 raise ValueError("unknown account")
             return f"{name} now has ${float(amount):,.2f}"
 
-        self.engine = SimpleNamespace(swing=SimpleNamespace(set_capital=set_capital))
+        async def set_enabled(on):
+            self.calls.append(("power", on))
+            self.engine.swing.enabled = on
+            return "Swing toolkit " + ("ON" if on else "OFF")
+
+        self.engine = SimpleNamespace(swing=SimpleNamespace(set_capital=set_capital, set_enabled=set_enabled, enabled=True))
         cfg = SimpleNamespace(server=SimpleNamespace(host="127.0.0.1", port=1), feed=SimpleNamespace(interval_s=1.0))
         self.dash = Dashboard(self.engine, cfg, Path("web"))
         self.server = TestServer(self.dash.make_app())
@@ -429,6 +497,14 @@ class FundEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r.status, 400)
         r = await self.post([1, 2])
         self.assertEqual(r.status, 400)
+
+    async def test_the_on_off_switch(self):
+        url, tok = "/api/swing-power", {"X-Token": self.dash.token}
+        self.assertEqual((await self.client.post(url, json={"on": False})).status, 403)      # no token
+        r = await self.client.post(url, json={"on": False}, headers=tok)
+        self.assertEqual((r.status, (await r.json())["enabled"]), (200, False))
+        self.assertEqual((await self.client.post(url, json={"on": "yes"}, headers=tok)).status, 400)
+        self.assertEqual(self.calls, [("power", False)])
 
     async def test_without_swing_it_says_so(self):
         self.engine.swing = None

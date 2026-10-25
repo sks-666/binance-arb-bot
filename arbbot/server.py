@@ -51,6 +51,7 @@ class Dashboard:
         app.router.add_get("/api/paper/state", self.paper_state)
         app.router.add_post("/api/paper/{op}", self.paper_action)
         app.router.add_post("/api/swing-capital", self.swing_capital)      # before the generic /api/{action}
+        app.router.add_post("/api/swing-power", self.swing_power)
         app.router.add_post("/api/{action}", self.action)
         return app
 
@@ -112,6 +113,23 @@ class Dashboard:
             return web.json_response({"ok": False, "error": f"could not get a price from Binance ({type(e).__name__})"},
                                      status=502)
         return web.json_response({"ok": True, "result": result, "state": self.paper.view()})
+
+    async def swing_power(self, request: web.Request) -> web.Response:
+        """Switch the swing toolkit on or off (SwingRunner.set_enabled): off = no new entries, exits keep working."""
+        if not hmac.compare_digest(request.headers.get("X-Token", ""), self.token):
+            raise web.HTTPForbidden(text="bad token")
+        swing = getattr(self.engine, "swing", None)
+        if swing is None:
+            return web.json_response({"ok": False, "error": "the swing toolkit is not running in this bot (start it with --swing)"},
+                                     status=404)
+        try:
+            body = await request.json()
+            if not isinstance(body, dict) or not isinstance(body.get("on"), bool):
+                raise ValueError('expected {"on": true} or {"on": false}')
+        except ValueError as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+        message = await swing.set_enabled(body["on"])
+        return web.json_response({"ok": True, "message": message, "enabled": swing.enabled})
 
     async def swing_capital(self, request: web.Request) -> web.Response:
         """Give one swing paper account a new fund (see SwingRunner.set_capital: that account restarts from now)."""

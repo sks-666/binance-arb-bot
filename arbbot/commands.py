@@ -59,7 +59,8 @@ HELP = (
     "• Not available: a pure long, a pure short, or the reverse pair (short spot / long perp)\n\n"
     "Swing toolkit (paper; only when the bot was started with --swing)\n"
     "• /setups = trend / swing / SMC setups waiting for the next candle open\n"
-    "• /swing = the three paper accounts · /journal [n] = stats and the last n trades with the reason for each\n\n"
+    "• /swing = the three paper accounts · /journal [n] = stats and the last n trades with the reason for each\n"
+    "• /swing off = no new swing entries (open ones keep their stops and exits) · /swing on = trade again\n\n"
     "I only trade LONG spot / SHORT perp, when the perp is rich versus spot. "
     "Everything else I show is information only."
 )
@@ -110,6 +111,10 @@ class CommandHandler:
             return self._cancel()
         if cmd == "/close":
             return await self._close_request(arg.strip())
+        if cmd == "/swing" and arg.strip().lower() in ("on", "off"):
+            if self.swing is None:
+                return self._swing("swing")
+            return await self.swing.set_enabled(arg.strip().lower() == "on")
         return self.answer(t)
 
     def answer(self, text: str) -> str:

@@ -142,6 +142,8 @@ class SwingRunner:
         self.bar_ms = INTERVAL_MS[cfg.interval]
         self.symbols, self.tag, self.accounts = self._begin_run()
         self._lock = asyncio.Lock()                               # one replay at a time (the loop and a fund change)
+        # when the toolkit was switched OFF: [[from ms, to ms or None while still off]]; no new entries inside these
+        self.off_windows: list[list] = json.loads(journal.get_state("paper_off", "[]"))
         self.results: dict[str, Result] = {}
         self.checked_at = 0.0
         self.last_error = ""
@@ -279,7 +281,7 @@ class SwingRunner:
             acct = self.accounts[name]
             out[name] = run_backtest(data, factory, self.risk, self.costs, acct["capital"], self.bar_ms,
                                      funding or None, close_at_end=False, start_ts=acct["start_ts"] - self.bar_ms,
-                                     partial_last=set(forming))
+                                     partial_last=set(forming), paused=[tuple(w) for w in self.off_windows])
         return out
 
     def _report(self, results: dict[str, Result]) -> list[str]:
@@ -308,7 +310,7 @@ class SwingRunner:
                                 f"   risk ${p['risk_usd']:.2f} ({self.cfg.risk_pct:g}% of the account)\n   why: {p['reason_in']}")
             for sym, st in res.pending.items():
                 key = f"{self.accounts[name]['tag']}:{name}:{sym}:{st.index}"
-                if key not in notified:
+                if key not in notified and self.enabled:
                     notified.add(key)
                     msgs.append(f"🔔 SWING SETUP [{name}] {sym} {st.side.upper()}: paper entry at the next {tf} open\n"
                                 f"   near {st.ref_price:.6g}   stop {st.stop:.6g}   target {self._target(st.target)}\n"
@@ -344,7 +346,8 @@ class SwingRunner:
         c = self.cfg
         return dict(interval=c.interval, symbols=list(self.symbols), strategies=list(c.strategies), capital=c.capital,
                     risk_pct=c.risk_pct, start_ts=self.start_ts, market=c.market, unavailable=dict(self.unavailable),
-                    funds={n: a["capital"] for n, a in self.accounts.items()})
+                    funds={n: a["capital"] for n, a in self.accounts.items()}, enabled=self.enabled,
+                    off_since=self.off_since)
 
     def _build_snapshot(self) -> dict:
         accounts, open_, setups = [], [], []
@@ -397,7 +400,10 @@ class SwingRunner:
                 lines.append(f"🔔 [{name}] {sym} {st.side.upper()}: paper entry at the next {self.cfg.interval} open\n"
                              f"   near {st.ref_price:.6g}   stop {st.stop:.6g}   target {self._target(st.target)}\n"
                              f"   why: {st.reason}")
-        if not lines:
+        if not self.enabled:
+            lines.append(f"⏸ The swing toolkit is OFF (since {_utc(self.off_since)} UTC): no new setups or entries. "
+                         f"Open positions still follow their stops and exits. /swing on turns it back on.")
+        elif not lines:
             lines.append(f"No setups waiting on the latest {self.cfg.interval} candles of {self._coins()}. That is the "
                          f"usual answer: these strategies wait for a pattern, they do not trade every candle.")
         lines.append(f"(checked {_ago(self.clock() - self.checked_at)} ago; paper only)")
@@ -421,6 +427,9 @@ class SwingRunner:
             for p in res.open_positions:
                 lines.append(f"    {p['symbol']} {p['side'].upper()} in {p['entry_px']:.6g}, now {p['mark']:.6g}, "
                              f"stop {p['stop']:.6g} · {p['unrealised_usd']:+.2f} USD ({p['unrealised_r']:+.2f}R)")
+        if not self.enabled:
+            lines.insert(1, f"⏸ OFF since {_utc(self.off_since)} UTC: no new entries; open positions keep their stops "
+                            f"and exits. /swing on turns it back on.")
         lines.append(f"Each account risks {self.cfg.risk_pct:g}% of its own fund per trade. "
                      f"Paper only; the arbitrage bot is separate.")
         if (u := self._unavailable_line()):
@@ -436,6 +445,40 @@ class SwingRunner:
                 + format_trades(self.journal.trades(mode="paper", run_like=ids, limit=n)))
 
     # ---- changing an account's fund --------------------------------------------------------------
+    # ---- switching the toolkit on and off ------------------------------------------------------------
+    @property
+    def enabled(self) -> bool:
+        return not (self.off_windows and self.off_windows[-1][1] is None)
+
+    @property
+    def off_since(self) -> int | None:
+        return None if self.enabled else int(self.off_windows[-1][0])
+
+    async def set_enabled(self, on: bool) -> str:
+        """OFF: the accounts take no new entries and announce no setups; open positions keep their stops, targets and
+        exits (the candles keep being read for that). ON again: they trade from that moment; the off time is skipped."""
+        async with self._lock:
+            if bool(on) == self.enabled:
+                return f"The swing toolkit is already {'ON' if on else 'OFF'}."
+            now_ms = int(self.clock() * 1000)
+            if on:
+                self.off_windows[-1][1] = now_ms
+            else:
+                self.off_windows.append([now_ms, None])
+            self.off_windows = self.off_windows[-200:]
+            self.journal.set_state("paper_off", json.dumps(self.off_windows))
+            self._sig = None                                           # replay with the new windows
+            if self.results:
+                self._snap = self._build_snapshot()
+            msg = ("▶️ Swing toolkit ON: trend, swing and SMC take new entries again from now." if on else
+                   "⏸ Swing toolkit OFF: no new entries or setup alerts. Open positions keep their stops and exits.")
+            self.notify(msg)
+        try:
+            await self.refresh()
+        except Exception as e:                                         # the switch is saved; the loop retries the data
+            self.last_error = f"{type(e).__name__}: {e}"
+        return msg
+
     async def set_capital(self, name: str, amount) -> str:
         """Give one paper account a new fund. The replay fixes position sizes from the starting fund, so the honest way to
         change it is to restart THAT account from now: its open paper positions are closed at their last mark ("account

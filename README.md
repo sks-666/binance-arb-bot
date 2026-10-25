@@ -190,6 +190,12 @@ live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 e
   the setups waiting for the next candle open with the reason, and the last ten closed trades. Without `--swing` the panel
   says so instead of showing zeros. The data is the same sanitised snapshot (no keys, no controls); after changing
   `web/index.html` rebuild the hosted page with `scripts/build_hosted_dashboard.py` (a test fails if it is out of date).
+* **On / off.** The swing panel's *Toolkit ON/OFF* switch (local dashboard) or `/swing off` and `/swing on` in Telegram.
+  OFF means the trend, swing and SMC accounts take **no new entries** and announce no setups; positions already open keep
+  their stops, targets and exits (the candles keep being read for that, and an exit is still reported). ON again: they
+  trade from that moment; the off time is skipped, never back-filled. The switch is saved in the journal (`paper_off`,
+  every off window), so it survives a restart, and the replay honours the windows (`run_backtest(..., paused=...)`).
+  It only exists when the bot runs with `--swing`.
 * **Changing a fund from the web.** On the local dashboard (not the hosted read-only copies) the swing panel has a *Fund
   per account* row: type an amount from $100 to $10,000,000 for trend, swing or smc and press Set (it asks first). Position
   sizes follow the starting fund, so that **one account restarts from now**: its open paper trades are closed at their last
