@@ -23,6 +23,8 @@ class Risk:
         self.loss_active = False
         self.consecutive_errors = 0
         self._cooldown: dict[str, float] = {}
+        # coins another user of the same exchange account is working (the testnet order ticket): never entered here
+        self.external = lambda: set()
 
     @property
     def halted(self) -> bool:
@@ -55,6 +57,8 @@ class Risk:
             return 0.0, self.halt_reason
         if sig.symbol in self.pf.open:
             return 0.0, "already open"
+        if sig.symbol in self.external():
+            return 0.0, "held by the order ticket"
         if len(self.pf.open) >= c.max_open_positions:
             return 0.0, "max open positions"
         if now < self._cooldown.get(sig.symbol, 0.0):

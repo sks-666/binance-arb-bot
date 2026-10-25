@@ -296,7 +296,7 @@
           <button type="button" class="ot-chip" disabled title="The paper account uses isolated margin">Isolated</button>
           <button type="button" class="ot-chip" id="ot-lev" title="Leverage for this market">15x</button>
           <button type="button" class="ot-chip" disabled title="Single-asset mode: margin in USDT">S</button>
-          <span class="badge paper" title="Orders fill against live Binance prices in a paper account. Nothing is ever sent to Binance.">PAPER</span>
+          <span class="badge paper" id="ot-venue" title="Orders fill against live Binance prices in a paper account. Nothing is ever sent to Binance.">PAPER</span>
         </div>
         <div class="ot-levbox" id="ot-levbox" hidden>
           <div class="ot-lab">Leverage for <span id="ot-levsym"></span></div>
@@ -355,7 +355,7 @@
           <button class="mk-tab" role="tab" data-pf="hist">Order History</button>
           <button class="mk-tab" role="tab" data-pf="trades">Trade History</button>
           <button class="mk-tab" role="tab" data-pf="assets">Assets</button>
-          <span class="mk-spread">paper futures account</span>
+          <span class="mk-spread" id="pf-venue">paper futures account</span>
         </div>
         <div id="pf-pane-pos" class="tbl scroll mid"><table><thead><tr><th style="text-align:left">Market</th><th>Size</th><th>Entry</th><th>Mark</th><th>Liq. price</th><th>Margin</th><th>PnL (ROE)</th><th>TP / SL</th><th>Close</th></tr></thead><tbody id="pf-pos"></tbody></table></div>
         <div id="pf-pane-orders" class="tbl scroll mid" hidden><table><thead><tr><th style="text-align:left">Time</th><th style="text-align:left">Market</th><th>Type</th><th>Side</th><th>Price</th><th>Trigger</th><th>Amount</th><th>Reduce-only</th><th>TIF</th><th>Cancel</th></tr></thead><tbody id="pf-orders"></tbody></table></div>
@@ -939,12 +939,24 @@ function otDefaults() {   // fill the price with the last price whenever the cha
     $("ot-tp").value = ""; $("ot-sl").value = ""; $("ot-msg").textContent = "";
   }
 }
+// "paper" (simulated account) or "testnet" (real orders on the Binance futures testnet, test money)
+const VN = () => (OT.st && OT.st.venue === "testnet") ? "testnet" : "paper";
+const VNC = () => VN() === "testnet" ? "Testnet" : "Paper";
+function otVenue() {
+  const t = VN() === "testnet", b = $("ot-venue");
+  b.textContent = t ? "TESTNET" : "PAPER";
+  b.title = t ? "Orders are sent to the Binance FUTURES TESTNET: real testnet orders, test money only."
+              : "Orders fill against live Binance prices in a paper account. Nothing is ever sent to Binance.";
+  $("ot-transfer").hidden = t;
+  $("pf-venue").textContent = t ? "Binance futures TESTNET account" : "paper futures account";
+}
 function otEst() {
+  otVenue();
   $("ot-unit").options[1].text = coin();
   $("ot-lev").textContent = otLev() + "x";
   $("ot-avbl").textContent = OT.st ? fmt2(OT.st.available) : "–";
   $("ot-fee").textContent = OT.st ? `% Fee level · maker ${(OT.st.maker_bps / 100).toFixed(3)}% · taker ${(OT.st.taker_bps / 100).toFixed(3)}%`
-    : (OT.err ? "Paper account unavailable: " + OT.err : "% Fee level");
+    : (OT.err ? `${VNC()} account unavailable: ` + OT.err : "% Fee level");
   const lev = otLev(), t = OT.st ? OT.st.taker_bps / 1e4 : 5e-4, mmr = OT.st ? OT.st.mmr : 0.005, max = otMax(), ro = $("ot-ro").checked;
   for (const [buy, k] of [[true, "b"], [false, "s"]]) {
     const ref = otRef(buy), usdt = otUsdt(ref || otLast());
@@ -967,8 +979,8 @@ async function pfPost(op, body, buttons) {
 }
 function otDescribe(o) {
   const what = `${o.side === "buy" ? "Buy/Long" : "Sell/Short"} ${fmtQ(o.qty)} ${o.symbol.replace(/USDT$/, "")}`;
-  if (o.status === "filled") return [`Paper fill: ${what} @ ${fmtP(o.filled_px)} (fee ${fmt2(o.fee)} USDT).`, false];
-  if (o.status === "new") return [`Paper ${typeLabel(o).toLowerCase()} order placed: ${what}${o.price ? " @ " + fmtP(o.price) : ""}${o.stop_price ? ", stop " + fmtP(o.stop_price) : ""}.`, false];
+  if (o.status === "filled") return [`${VNC()} fill: ${what} @ ${o.filled_px ? fmtP(o.filled_px) : "market"}${VN() === "paper" ? ` (fee ${fmt2(o.fee)} USDT)` : ""}.`, false];
+  if (o.status === "new") return [`${VNC()} ${typeLabel(o).toLowerCase()} order placed: ${what}${o.price ? " @ " + fmtP(o.price) : ""}${o.stop_price ? ", stop " + fmtP(o.stop_price) : ""}.`, false];
   return [`Not filled (${o.status}): ${o.reason}`, true];
 }
 async function otSubmit(side) {
@@ -1005,7 +1017,7 @@ function pfRender() {
   document.querySelectorAll(".mk-tab[data-pf]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.pf === OT.pf)));
   for (const p of ["pos", "orders", "hist", "trades", "assets"]) $("pf-pane-" + p).hidden = p !== OT.pf;
   if (!st) {
-    const msg = `<tr><td colspan="10" class="empty">${OT.err ? "Paper account unavailable: " + esc(OT.err) : "Loading…"}</td></tr>`;
+    const msg = `<tr><td colspan="10" class="empty">${OT.err ? `${VNC()} account unavailable: ` + esc(OT.err) : "Loading…"}</td></tr>`;
     for (const id of ["pf-pos", "pf-orders", "pf-hist", "pf-trades"]) $(id).innerHTML = msg;
     return;
   }
@@ -1021,22 +1033,22 @@ function pfRender() {
     `<td class="n">${price(p.entry)}</td><td class="n">${price(p.mark)}</td><td class="n warn">${p.liq ? price(p.liq) : "–"}</td><td class="n">${fmt2(p.margin)}</td>` +
     `<td class="n ${cls(p.pnl)}">${money(p.pnl)} (${sg(p.roe, 2)}%)</td><td class="n">${tpsl(p.symbol)}</td>` +
     `<td><button type="button" class="mini" data-close="${esc(p.symbol)}">Market close</button></td></tr>`
-  ).join("") : `<tr><td colspan="9" class="empty">No open paper positions. Use the order ticket above.</td></tr>`;
+  ).join("") : `<tr><td colspan="9" class="empty">No open ${VN()} positions. Use the order ticket above.</td></tr>`;
   $("pf-orders").innerHTML = st.orders.length ? st.orders.slice().reverse().map(o =>
     `<tr><td class="mut" style="text-align:left">${tms(o.created)}</td><td class="sym" style="text-align:left">${esc(o.symbol)}</td><td class="n">${esc(typeLabel(o))}</td><td class="n">${sideTxt(o.side)}</td>` +
     `<td class="n">${o.price != null ? price(o.price) : "Market"}</td><td class="n">${o.stop_price ? `${o.triggered ? "triggered " : ""}${o.above ? "≥" : "≤"} ${price(o.stop_price)} <span class="mut">${esc(o.trigger)}</span>` : "–"}</td>` +
     `<td class="n">${fmtQ(o.qty)}</td><td class="n">${o.reduce_only ? "Yes" : "No"}</td><td class="n">${esc(o.tif)}</td>` +
     `<td><button type="button" class="mini" data-cancel="${o.id}">Cancel</button></td></tr>`
-  ).join("") : `<tr><td colspan="10" class="empty">No open paper orders.</td></tr>`;
+  ).join("") : `<tr><td colspan="10" class="empty">No open ${VN()} orders.</td></tr>`;
   $("pf-hist").innerHTML = st.order_history.length ? st.order_history.map(o =>
     `<tr><td class="mut" style="text-align:left">${tms(o.updated)}</td><td class="sym" style="text-align:left">${esc(o.symbol)}</td><td class="n">${esc(typeLabel(o))}</td><td class="n">${sideTxt(o.side)}</td>` +
     `<td class="n">${o.filled_px != null ? price(o.filled_px) : o.price != null ? price(o.price) : "–"}</td><td class="n">${fmtQ(o.qty)}</td>` +
     `<td class="n ${o.status === "filled" ? "pos" : o.status === "liquidated" || o.status === "rejected" ? "neg" : "mut"}">${esc(o.status)}</td><td class="why">${esc(o.reason || "")}</td></tr>`
-  ).join("") : `<tr><td colspan="8" class="empty">No paper orders yet.</td></tr>`;
+  ).join("") : `<tr><td colspan="8" class="empty">No ${VN()} orders yet.</td></tr>`;
   $("pf-trades").innerHTML = st.trades.length ? st.trades.map(t =>
     `<tr><td class="mut" style="text-align:left">${tms(t.time)}</td><td class="sym" style="text-align:left">${esc(t.symbol)}</td><td class="n">${sideTxt(t.side)}</td><td class="n">${price(t.price)}</td>` +
     `<td class="n">${fmtQ(t.qty)}</td><td class="n">${fmt2(t.fee)}</td><td class="n ${cls(t.realized)}">${t.realized ? money(t.realized) : "–"}</td><td class="n mut">${t.liquidation ? "liquidation" : esc(t.role)}</td></tr>`
-  ).join("") : `<tr><td colspan="8" class="empty">No paper fills yet.</td></tr>`;
+  ).join("") : `<tr><td colspan="8" class="empty">No ${VN()} fills yet.</td></tr>`;
   const kv = (l, v, c) => `<div><div class="l">${l}</div><div class="v ${c || ""}">${v}</div></div>`;
   $("pf-assets").innerHTML = kv("Wallet balance", fmt2(st.balance) + " USDT") + kv("Available", fmt2(st.available) + " USDT") +
     kv("Unrealized PnL", money(st.unrealized), cls(st.unrealized)) + kv("Equity", fmt2(st.equity) + " USDT") +
@@ -1108,13 +1120,13 @@ $("ot-levok").addEventListener("click", async () => {
 document.querySelectorAll(".mk-tab[data-pf]").forEach(b => b.addEventListener("click", () => { OT.pf = b.dataset.pf; otSave(); pfRender(); }));
 $("pf-pos").addEventListener("click", async e => {
   const sym = e.target.dataset && e.target.dataset.close;
-  if (!sym || !confirm(`Close the paper ${sym} position at market?`)) return;
+  if (!sym || !confirm(`Close the ${VN()} ${sym} position at market?`)) return;
   const d = await pfPost("close", { symbol: sym }, [e.target]);
   if (d) { const [text, bad] = otDescribe(d.result); otMsg(text, bad); }
 });
 $("pf-orders").addEventListener("click", async e => {
   const id = e.target.dataset && e.target.dataset.cancel;
-  if (id && await pfPost("cancel", { id: Number(id) }, [e.target])) otMsg("Paper order canceled.");
+  if (id && await pfPost("cancel", { id: Number(id) }, [e.target])) otMsg(`${VNC()} order canceled.`);
 });
 $("mk-sym").addEventListener("change", () => { $("ot-levbox").hidden = true; otEst(); });
 otMode(); pfRender();

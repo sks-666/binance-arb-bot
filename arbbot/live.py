@@ -129,7 +129,8 @@ class LiveExecutor:
                 raise
             return await self.c.get("fapi", v2, signed=True)
 
-    async def reconcile(self, positions: dict[str, Position], markets: dict[str, Market]) -> list[str]:
+    async def reconcile(self, positions: dict[str, Position], markets: dict[str, Market],
+                        ignore: set[str] | frozenset = frozenset()) -> list[str]:
         """Compare the bot's saved positions with what Binance actually holds. Returns human-readable problems.
 
         Checks: every saved position still has its short perp and enough spot base asset, and no open
@@ -150,7 +151,7 @@ class LiveExecutor:
             if base and held.get(base, 0.0) < pos.spot_qty * 0.98:
                 problems.append(f"{sym}: bot expects ~{pos.spot_qty:g} {base} spot but wallet holds {held.get(base, 0.0):g}")
         for sym, amt in shorts.items():
-            if sym in markets:
+            if sym in markets and sym not in ignore:     # `ignore`: coins the testnet order ticket owns
                 problems.append(f"{sym}: Binance has an open perp position ({amt:g}) the bot has no record of")
         return problems
 

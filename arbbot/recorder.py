@@ -16,6 +16,7 @@ import gzip
 import json
 import logging
 import time
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,20 +33,57 @@ def _day(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%d")
 
 
+GZ_MAGIC = b"\x1f\x8b\x08"
+
+
+def _iter_lines(p: Path):
+    """The lines of one recording, gzip member by member (each bot start appends a member). A member a crash cut off
+    (no gzip end; the next start's member follows it directly) is read up to the break, then reading resumes at the
+    next member header, so one killed bot never hides the rest of the day."""
+    data = p.read_bytes()
+    pos, broken = 0, 0
+    while (start := data.find(GZ_MAGIC, pos)) >= 0:
+        # Feed the member only up to the next place another member could start. A decompress call that runs into a
+        # foreign member raises and discards everything it decoded, so it must never be handed bytes past a break.
+        d, tail, seg, end, cut = zlib.decompressobj(16 + zlib.MAX_WBITS), b"", start, start, False
+        while True:
+            nxt = data.find(GZ_MAGIC, seg + len(GZ_MAGIC))
+            end = nxt if nxt >= 0 else len(data)
+            try:
+                out = d.decompress(data[seg:end])
+            except zlib.error:                      # `seg` is a real new member: this one was cut off just before it
+                cut = True
+                break
+            lines = (tail + out).split(b"\n")
+            tail = lines.pop()
+            yield from (ln for ln in lines if ln)
+            if d.eof or end >= len(data):
+                break
+            seg = end                               # that header was inside this member's data: keep feeding
+        if d.eof:                                   # a complete member: carry on right after it
+            if tail:
+                yield tail
+            pos = end - len(d.unused_data)
+        elif cut:                                   # cut off by a stop mid-write: drop its half line, go on at `seg`
+            broken += 1
+            pos = seg
+        else:                                       # the last member is still being written (or ends cut off)
+            pos = len(data)
+    if broken:
+        log.info("%s: %d member(s) cut off by a stop mid-write; read each up to its break", p.name, broken)
+
+
 def read_records(paths):
-    """Yield every record from the given recording files in order. Truncated tails (crash mid-write) end a file quietly."""
+    """Yield every record from the given recording files in order, surviving members cut off by a crash mid-write."""
     for p in sorted(Path(x) for x in paths):
         try:
-            with gzip.open(p, "rt", encoding="utf-8") as fh:
-                for line in fh:
-                    try:
-                        yield json.loads(line)
-                    except json.JSONDecodeError:
-                        break  # half-written last line
-        except EOFError:  # the normal state of a file the bot is still writing (its gzip member is not closed yet)
-            log.info("%s is still being written; read everything up to the last flush", p.name)
-        except (OSError, gzip.BadGzipFile) as e:
-            log.warning("%s is damaged (%s: %s); keeping what was readable", p.name, type(e).__name__, e)
+            for line in _iter_lines(p):
+                try:
+                    yield json.loads(line)
+                except ValueError:
+                    continue  # a line half-written at a crash
+        except OSError as e:
+            log.warning("%s could not be read (%s: %s)", p.name, type(e).__name__, e)
 
 
 def books_to_record(books: Books) -> dict:

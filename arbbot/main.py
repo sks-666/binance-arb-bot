@@ -25,6 +25,7 @@ from .hosted_dashboard import MIN_PASSWORD, make_hosted_app, settings_from_env
 from .live import LiveExecutor
 from .market import MarketData
 from .paper_futures import PaperFutures
+from .testnet_ticket import TestnetTicket
 from .portfolio import Portfolio, Store
 from .publisher import SnapshotPublisher
 from .recorder import DepthSampler, Recorder
@@ -195,6 +196,8 @@ def setup_logging() -> None:
 
 async def amain(args: argparse.Namespace) -> None:
     load_dotenv(ROOT / ".env")
+    if not Path(args.config).is_file():   # never fall back to built-in defaults silently (ports, recorder, sizes...)
+        sys.exit(f"config file not found: {args.config}")
     cfg = load(args.config)
     if args.feed:
         cfg.feed.mode = args.feed
@@ -300,9 +303,21 @@ async def amain(args: argparse.Namespace) -> None:
 
         label = "SIM" if cfg.feed.mode == "sim" else f"{mode.upper()} {cfg.execution.env}"
         alerts = Notifier(cfg.alerts, token, chat_id, label, session)
+        # The dashboard's order ticket: REAL testnet orders under --live --testnet (it refuses any non-testnet client),
+        # a paper futures account everywhere else. It is never connected to mainnet.
+        if live and cfg.execution.env == "testnet":
+            ticket = TestnetTicket(client, ROOT / "data" / f"ticket-{db_path.stem}.json",
+                                   arb_symbols=lambda: set(portfolio.open), notify=alerts.send,
+                                   taker_bps=cfg.fees.futures_taker_bps)
+            risk.external = ticket.owned              # the arbitrage bot stays off the ticket's coins
+        else:
+            # one paper futures account per bot state, so two bots (e.g. paper + testnet) never write the same file
+            pf_name = "paper-futures.json" if db_path.stem == "paper-mainnet-real" else f"paper-futures-{db_path.stem}.json"
+            ticket = PaperFutures(ROOT / "data" / pf_name, client, cfg.fees.futures_taker_bps, notify=alerts.send)
         if live:  # never trade on top of a book that disagrees with the exchange
             try:
-                problems = await executor.reconcile(portfolio.open, board.markets)
+                problems = await executor.reconcile(portfolio.open, board.markets,
+                                                    ignore=ticket.owned() if isinstance(ticket, TestnetTicket) else frozenset())
             except Exception as e:
                 problems = [f"could not reconcile with the exchange: {type(e).__name__}: {e}"]
             for problem in problems:
@@ -313,7 +328,8 @@ async def amain(args: argparse.Namespace) -> None:
                 log.info("reconciled: saved positions match the exchange")
         depth = RestDepth(client) if (cfg.feed.mode in ("rest", "ws") and cfg.risk.use_depth_sizing) else None
         recorder = None
-        if cfg.recorder.enabled and cfg.feed.mode != "sim":  # synthetic data is never worth recording
+        # recordings are mainnet market data for backtests: never synthetic (sim) and never testnet prices
+        if cfg.recorder.enabled and cfg.feed.mode != "sim" and cfg.execution.env == "mainnet":
             recorder = Recorder(cfg.recorder, cfg.feed.max_quote_age_s, root=ROOT, fees=cfg.fees)
         engine = Engine(cfg, board, scanner, portfolio, risk, executor, trading=not args.no_trade, alerts=alerts,
                         depth=depth, recorder=recorder)
@@ -338,12 +354,7 @@ async def amain(args: argparse.Namespace) -> None:
                 sys.exit(f"--swing: {e}")
             handler.swing = engine.swing = swing
         listener = TelegramListener(cfg.alerts, alerts, handler, poll_timeout_s=cfg.alerts.poll_timeout_s)
-        # the dashboard's order ticket trades a PAPER futures account at live prices; it never touches the executor
-        # one paper futures account per bot state, so two bots (e.g. paper + testnet) never write the same file
-        pf_name = "paper-futures.json" if db_path.stem == "paper-mainnet-real" else f"paper-futures-{db_path.stem}.json"
-        paper_futures = PaperFutures(ROOT / "data" / pf_name, client, cfg.fees.futures_taker_bps,
-                                     notify=alerts.send)
-        dash = Dashboard(engine, cfg, ROOT / "web", market=MarketData(client), paper=paper_futures)
+        dash = Dashboard(engine, cfg, ROOT / "web", market=MarketData(client), paper=ticket)
         if args.hosted:  # public interface: the READ-ONLY page behind a login, never the dashboard with its controls
             hosted_password, hosted_user = settings_from_env()
             runner = web.AppRunner(make_hosted_app(engine, ROOT / "vercel-dashboard" / "views" / "dashboard.html",
@@ -406,7 +417,7 @@ async def amain(args: argparse.Namespace) -> None:
             log.info("hosted dashboard: publishing a read-only snapshot every %.0fs (settings fingerprint: url %s, token %s)",
                      cfg.publisher.interval_s, url_fp, token_fp)
         coros = [feed.run(), engine.run(), dash.broadcast_loop(), alerts.run(), listener.run(), publisher.run(),
-                 paper_futures.run()]
+                 ticket.run()]
         if sampler is not None:
             coros.append(sampler.run())
         if swing is not None:
