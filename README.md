@@ -206,6 +206,20 @@ live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 e
   (`arbbot/market.py`), so an open page costs roughly 250 request-weight a minute and nothing in it can place an order. It
   only polls while the tab is visible. Binance has no 1-second candles for futures, so the shortest interval is 1m. The
   hosted read-only copies leave the panel out.
+* **Paper order ticket (local dashboard).** Beside the order book, a Binance-style ticket trades a separate **paper USD-M
+  futures account** (starts with 1,000 paper USDT; the ⇆ button adds or takes out paper money) at live prices. **Nothing
+  is ever sent to Binance**: it lives in `arbbot/paper_futures.py`, never touches the arbitrage executor or `live.py`, and
+  every Telegram note it sends says so. It offers Limit (GTC / IOC / FOK, BBO = best bid for a buy, best ask for a sell,
+  or click a book level to use its price), Market (walks the real order book, optional slippage tolerance) and
+  Conditional (stop price on last or mark, releasing a limit or market order); attached TP/SL (a one-cancels-other pair of
+  reduce-only stop-market orders); Reduce-Only; isolated margin with leverage 1x to 125x per market (change it while the
+  market has no position or order); estimated liquidation price, cost and max size for both sides; a size slider. Below,
+  **Positions / Open Orders / Order History / Trade History / Assets** with market close and cancel buttons; the chart
+  draws the paper entry, liquidation price and working orders. Fills pay the maker 0.02% / taker 0.05% fees, positions
+  pay or receive the real funding at each settlement, and a position is liquidated (losing its isolated margin) when the
+  mark price reaches its liquidation price. Simplified on purpose: whole fills only (no partials), a resting limit fills
+  when the price reaches it (no queue position), FOK behaves like IOC, one maintenance margin rate (0.5%) for every
+  market, a 5 USDT minimum order. State: `data/paper-futures.json`.
 * **Run only one of the two at a time.** Both write the same journal; they would agree, but you would get every alert twice.
 * **It is paper only and separate from the arbitrage book.** If the candle download fails the runner logs it and retries
   (30 s, doubling to 15 min); it can never stop the arbitrage bot that shares the process.
