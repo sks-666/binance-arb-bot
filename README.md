@@ -442,7 +442,13 @@ logic, but not Binance's responses. Do these in order:
 0. On startup the bot **reconciles** saved positions with Binance (short perp present, spot inventory present,
    no unknown perp positions in tracked markets) and trips a fault if anything disagrees. Use a dedicated
    account or sub-account so unrelated positions are not mistaken for orphans.
-1. Create **testnet** keys, put them in `.env` (see `.env.example`), run `run.py --live --testnet`.
+1. Create **testnet** keys: the spot and futures testnets are separate exchanges, so make a futures key on
+   testnet.binancefuture.com and a spot key on testnet.binance.vision, and put them in `.env` as
+   `BINANCE_TESTNET_FUTURES_API_KEY/_SECRET` and `BINANCE_TESTNET_SPOT_API_KEY/_SECRET` (see `.env.example`). Then run
+   **`run.py --check --testnet`**: a read-only check of the clock, account mode (One-way), balances and fee rates on
+   both exchanges that names the exact venue and key variable that fails. It sends no orders and never starts the bot
+   (`run.py --check` does the same on mainnet with `BINANCE_API_KEY`). Only when it passes, run `run.py --live --testnet`;
+   if the live preflight is refused it now stops with the same plain explanation instead of a traceback.
 2. Fund both wallets: the **spot** wallet needs USDT for the long leg and the **USDⓈ-M futures** wallet
    needs USDT for margin (isolated, `leverage = 2`). The futures account must be in **One-way mode**.
 3. Watch several full entry/exit cycles; compare fills and fees with the dashboard.
