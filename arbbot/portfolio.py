@@ -32,6 +32,15 @@ class Store:
             "id INTEGER PRIMARY KEY AUTOINCREMENT, closed_at REAL NOT NULL, "
             "symbol TEXT NOT NULL, pnl_usd REAL NOT NULL, json TEXT NOT NULL)"
         )
+        self.db.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+
+    # ---- small settings that must survive a restart (the manual entry pause) ------------------
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        row = self.db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        self.db.execute("INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)", (key, value))
 
     def save_position(self, pos: Position) -> None:
         self.db.execute(

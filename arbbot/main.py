@@ -163,6 +163,8 @@ async def amain(args: argparse.Namespace) -> None:
     store = Store(db_path)
     portfolio = Portfolio(store, now)
     risk = Risk(cfg.risk, portfolio)
+    paused_before = store.get_setting("manual_halt") == "1"   # a pause set before the restart still holds
+    risk.manual_halt = paused_before
     scanner = Scanner(cfg.strategy, cfg.fees, cfg.feed.max_quote_age_s)
     board = Board(cfg.feed.mode)
 
@@ -287,6 +289,11 @@ async def amain(args: argparse.Namespace) -> None:
         if recorder is not None:
             log.info("recorder: ON -> %s (backtest with: python backtest.py info|slippage|replay)", recorder.dir)
         alerts.started(len(board.markets), len(portfolio.open))
+        if paused_before:
+            log.warning("entries are PAUSED (you paused them before the restart); resume from the dashboard or /resume")
+            engine.event("warn", "entries still paused from before the restart (Resume or /resume to continue)")
+            alerts.send("⛔ Started with entries PAUSED, as you left them before the restart. "
+                        "Open positions are still managed. Send /resume or press Resume to trade again.")
 
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()

@@ -66,17 +66,26 @@ class Engine:
         self.events.append({"ts": now or time.time(), "lvl": level, "msg": msg})
 
     # ---- control surface (dashboard) -----------------------------------------------------------
+    def _save_pause(self) -> None:
+        """The manual pause is written down, so a restart never quietly resumes entries."""
+        store = getattr(self.pf, "store", None)
+        if store is not None:
+            store.set_setting("manual_halt", "1" if self.risk.manual_halt else "0")
+
     def request_halt(self) -> None:
         self.risk.manual_halt = True
+        self._save_pause()
         self.event("warn", "entries paused from dashboard")
 
     def request_resume(self) -> None:
         self.risk.manual_halt = False
+        self._save_pause()
         self.event("info", "entries resumed from dashboard")
 
     def request_flatten(self) -> None:
         self.flatten_requested = True
         self.risk.manual_halt = True
+        self._save_pause()
         self.event("warn", "flatten-all requested from dashboard (entries paused)")
 
     # ---- main loop -----------------------------------------------------------------------------
