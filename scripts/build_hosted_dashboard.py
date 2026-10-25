@@ -85,7 +85,8 @@ def main() -> None:
     html = must_sub(r"async function act\(name\).*?</script>", POLLING_JS + "</script>", html)
     # 5. hosted page should never be indexed
     html = must_sub(r"<title>", '<meta name="robots" content="noindex, nofollow">\n<title>', html)
-    for forbidden in ("btn-pause", "btn-flat", "WebSocket(", "__TOKEN__", "X-Token", "/api/halt", "/api/flatten"):
+    for forbidden in ("btn-pause", "btn-flat", "WebSocket(", "__TOKEN__", "X-Token", "/api/halt", "/api/flatten",
+                      "/api/swing-capital"):
         if forbidden in html:
             sys.exit(f"build failed: {forbidden!r} is still present in the hosted page")
     if "/api/snapshot" not in html:

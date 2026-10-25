@@ -45,8 +45,29 @@ class Dashboard:
         app.router.add_get("/", self.index)
         app.router.add_get("/ws", self.ws)
         app.router.add_get("/api/snapshot", self.snapshot)
+        app.router.add_post("/api/swing-capital", self.swing_capital)      # before the generic /api/{action}
         app.router.add_post("/api/{action}", self.action)
         return app
+
+    async def swing_capital(self, request: web.Request) -> web.Response:
+        """Give one swing paper account a new fund (see SwingRunner.set_capital: that account restarts from now)."""
+        if not hmac.compare_digest(request.headers.get("X-Token", ""), self.token):
+            raise web.HTTPForbidden(text="bad token")
+        swing = getattr(self.engine, "swing", None)
+        if swing is None:
+            return web.json_response({"ok": False, "error": "the swing toolkit is not running in this bot"}, status=404)
+        try:
+            body = await request.json()
+            if not isinstance(body, dict):
+                raise ValueError("expected a JSON object")
+            message = await swing.set_capital(str(body.get("strategy", "")), body.get("capital"))
+        except ValueError as e:                                             # bad json, unknown account, bad amount
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+        except Exception as e:                                              # e.g. the candle download failed mid-restart
+            log.warning("swing fund change: %s: %s", type(e).__name__, e)
+            return web.json_response({"ok": False, "error": f"saved, but the refresh failed ({type(e).__name__}); "
+                                                            "it will retry on its own"}, status=500)
+        return web.json_response({"ok": True, "message": message})
 
     async def index(self, request: web.Request) -> web.Response:
         html = (self.web_dir / "index.html").read_text(encoding="utf-8").replace("__TOKEN__", self.token)

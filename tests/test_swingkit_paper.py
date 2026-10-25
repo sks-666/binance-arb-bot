@@ -248,6 +248,56 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(len(self.api.requests), asked)
         self.assertEqual(r.refreshes, 2)
 
+    async def test_changing_an_accounts_fund_restarts_only_that_account(self):
+        await self.runner(2000).refresh()
+        self.api.candles.append(candle(2001))
+        r = self.runner(2001)
+        await r.refresh()
+        self.assertEqual(len(r.results["trend"].open_positions), 1)
+        old_tag = r.accounts["trend"]["tag"]
+        self.sent.clear()
+
+        for bad in (0, 50, 10_000_001, float("nan"), float("inf"), "abc", None):
+            with self.assertRaises(ValueError):
+                await r.set_capital("trend", bad)
+        with self.assertRaises(ValueError):
+            await r.set_capital("nope", 20_000)
+        self.assertEqual(r.accounts["trend"]["capital"], 10_000.0)                # nothing changed
+        self.assertIn("already has", await r.set_capital("trend", 10_000))        # same fund: a no-op
+        self.assertEqual(self.sent, [])
+
+        r.clock = one_bar_clock(2001, 0.75)
+        self.assertIn("now has $20,000.00", await r.set_capital("trend", 20_000))
+        acct = r.accounts["trend"]
+        self.assertEqual(acct["capital"], 20_000.0)
+        self.assertNotEqual(acct["tag"], old_tag)
+        self.assertEqual(acct["start_ts"], int(one_bar_clock(2001, 0.75)() * 1000))
+        old = self.journal.trades(mode="paper", run_id=f"paper-trend-4h-{old_tag}", limit=None)
+        self.assertEqual((len(old), old[0]["status"], old[0]["reason_out"]), (1, "closed", "account reset: fund changed"))
+        self.assertEqual(r.results["trend"].open_positions, [])                   # the old idea does not come back
+        s = r.snapshot()
+        a = s["accounts"][0]
+        self.assertEqual((a["capital"], a["equity"], a["return_pct"], a["open"], a["closed"]),
+                         (20_000.0, 20_000.0, 0.0, 0, 0))                          # a clean slate; old trade left the stats
+        self.assertEqual((s["funds"], s["trades"]), ({"trend": 20_000.0}, []))
+        self.assertTrue(any("fund [trend] $10,000 → $20,000" in m for m in self.sent))
+        self.assertEqual(len(self.journal.trades(mode="paper", limit=None)), 1)  # and no duplicate rows appeared
+
+        again = self.runner(2001)                                                  # a restarted bot keeps the new fund
+        self.assertEqual(again.accounts["trend"], acct)
+        self.assertEqual(again.snapshot()["funds"], {"trend": 20_000.0})
+
+    async def test_a_fund_change_only_touches_the_named_account(self):
+        cfg = PaperCfg(symbols=["BTCUSDT"], strategies=["trend", "swing"], cache_dir=str(self.tmp / "klines"))
+        r = SwingRunner(cfg, self.client, self.journal, self.sent.append, clock=one_bar_clock(2000))
+        await r.refresh()
+        swing_before = dict(r.accounts["swing"])
+        await r.set_capital("trend", 5_000)
+        self.assertEqual(r.accounts["swing"], swing_before)
+        self.assertEqual({a["strategy"]: a["capital"] for a in r.snapshot()["accounts"]},
+                         {"trend": 5_000.0, "swing": 10_000.0})
+        self.assertIn("5,000", r.status_text())
+
     async def test_telegram_commands_read_the_runner(self):
         from tests.test_commands import build, warm
         eng = build()
@@ -334,6 +384,62 @@ class DashboardPlumbingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(live["accounts"][0]["strategy"], "trend")
         pub = public_snapshot(eng.snapshot())["swing"]["accounts"][0]            # the hosted copy: rounded, NaN -> null
         self.assertEqual((pub["equity"], pub["avg_r"]), (10_012.3457, None))
+
+
+class FundEndpointTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        from types import SimpleNamespace
+        from aiohttp.test_utils import TestClient, TestServer
+        from arbbot.server import Dashboard
+        self.calls = []
+
+        async def set_capital(name, amount):
+            self.calls.append((name, amount))
+            if name != "trend":
+                raise ValueError("unknown account")
+            return f"{name} now has ${float(amount):,.2f}"
+
+        self.engine = SimpleNamespace(swing=SimpleNamespace(set_capital=set_capital))
+        cfg = SimpleNamespace(server=SimpleNamespace(host="127.0.0.1", port=1), feed=SimpleNamespace(interval_s=1.0))
+        self.dash = Dashboard(self.engine, cfg, Path("web"))
+        self.server = TestServer(self.dash.make_app())
+        await self.server.start_server()
+        self.dash.allowed_hosts.add(f"127.0.0.1:{self.server.port}")
+        self.client = TestClient(self.server)
+        await self.client.start_server()
+
+    async def asyncTearDown(self):
+        await self.client.close()
+
+    def post(self, body, token=True, **kw):
+        headers = {"X-Token": self.dash.token} if token else {}
+        return self.client.post("/api/swing-capital", json=body, headers=headers, **kw)
+
+    async def test_needs_the_control_token(self):
+        r = await self.post({"strategy": "trend", "capital": 1000}, token=False)
+        self.assertEqual(r.status, 403)
+        self.assertEqual(self.calls, [])
+
+    async def test_sets_the_fund_and_reports_bad_input_as_400(self):
+        r = await self.post({"strategy": "trend", "capital": 15000})
+        self.assertEqual((r.status, (await r.json())["message"]), (200, "trend now has $15,000.00"))
+        r = await self.post({"strategy": "smc", "capital": 15000})
+        self.assertEqual((r.status, (await r.json())["error"]), (400, "unknown account"))
+        r = await self.client.post("/api/swing-capital", data="not json", headers={"X-Token": self.dash.token})
+        self.assertEqual(r.status, 400)
+        r = await self.post([1, 2])
+        self.assertEqual(r.status, 400)
+
+    async def test_without_swing_it_says_so(self):
+        self.engine.swing = None
+        r = await self.post({"strategy": "trend", "capital": 1000})
+        self.assertEqual(r.status, 404)
+
+    async def test_the_generic_actions_still_work(self):
+        self.engine.request_halt = lambda: self.calls.append("halt")
+        self.engine.request_resume = self.engine.request_flatten = lambda: None
+        r = await self.client.post("/api/halt", headers={"X-Token": self.dash.token})
+        self.assertEqual((r.status, self.calls), (200, ["halt"]))
 
 
 class PageTests(unittest.TestCase):

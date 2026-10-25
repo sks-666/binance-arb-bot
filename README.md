@@ -190,6 +190,12 @@ live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 e
   the setups waiting for the next candle open with the reason, and the last ten closed trades. Without `--swing` the panel
   says so instead of showing zeros. The data is the same sanitised snapshot (no keys, no controls); after changing
   `web/index.html` rebuild the hosted page with `scripts/build_hosted_dashboard.py` (a test fails if it is out of date).
+* **Changing a fund from the web.** On the local dashboard (not the hosted read-only copies) the swing panel has a *Fund
+  per account* row: type an amount from $100 to $10,000,000 for trend, swing or smc and press Set (it asks first). Position
+  sizes follow the starting fund, so that **one account restarts from now**: its open paper trades are closed at their last
+  price (reason "account reset: fund changed"), its stats start again from zero, the other two accounts are untouched, and
+  the old trades stay in the journal. The change is saved, so it survives a restart, and is announced on Telegram. It uses
+  `POST /api/swing-capital`, guarded by the same per-run token as the pause and flatten buttons.
 * **Run only one of the two at a time.** Both write the same journal; they would agree, but you would get every alert twice.
 * **It is paper only and separate from the arbitrage book.** If the candle download fails the runner logs it and retries
   (30 s, doubling to 15 min); it can never stop the arbitrage bot that shares the process.

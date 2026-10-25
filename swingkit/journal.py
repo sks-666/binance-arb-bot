@@ -83,9 +83,10 @@ class Journal:
             if val:
                 clauses.append(f"{col} = ?")
                 args.append(val)
-        if run_like:  # SQL LIKE pattern, e.g. every account of one paper run: "paper-%-1761293900"
-            clauses.append("run_id LIKE ?")
-            args.append(run_like)
+        if run_like:  # a SQL LIKE pattern, or a list of them (any match): e.g. the current run ids of every paper account
+            pats = [run_like] if isinstance(run_like, str) else list(run_like)
+            clauses.append("(" + " OR ".join("run_id LIKE ?" for _ in pats) + ")")
+            args.extend(pats)
         return (" WHERE " + " AND ".join(clauses)) if clauses else "", args
 
     def trades(self, *, mode=None, strategy=None, status=None, run_id=None, run_like=None,

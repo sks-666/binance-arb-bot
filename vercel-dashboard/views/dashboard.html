@@ -84,6 +84,12 @@
   .sw-grid .tbl { border: 1px solid var(--line); border-radius: 10px; }
   .sw-note { padding: 0 14px 12px; color: var(--muted); font-size: 12px; }
   #sw-accts { padding: 14px 14px 0; margin-bottom: 14px; }
+  .sw-fund { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 0 14px 14px; font-size: 12.5px; color: var(--muted); }
+  .sw-fund label { display: inline-flex; align-items: center; gap: 6px; text-transform: capitalize; }
+  .sw-fund input { width: 110px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; font: inherit; }
+  .sw-fund button { padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: inherit; font: inherit; cursor: pointer; }
+  .sw-fund button:disabled { opacity: .5; cursor: default; }
+  .sw-fund .msg { flex-basis: 100%; }
   td.why { white-space: normal; min-width: 240px; text-align: left; color: var(--muted); font-size: 12.5px; }
   th.why { text-align: left; }
   .side-long { color: var(--pos); font-weight: 650; } .side-short { color: var(--neg); font-weight: 650; }
@@ -146,6 +152,7 @@
     <div id="sw-off" class="empty" hidden>The swing toolkit is not running in this bot. Start it with <code>--swing</code> to paper-trade the trend, swing and Smart Money strategies.</div>
     <div id="sw-on" hidden>
       <div class="kpis" id="sw-accts"></div>
+      <div class="sw-fund" id="sw-fund" hidden></div>
       <div class="sw-grid">
         <div><h3>Open swing positions</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Entry</th><th>Now</th><th>Stop</th><th>Target</th><th>P&amp;L</th></tr></thead><tbody id="sw-open"></tbody></table></div></div>
         <div><h3>Waiting for the next candle open</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Near</th><th>Stop</th><th>Target</th><th class="why">Why</th></tr></thead><tbody id="sw-setups"></tbody></table></div></div>
@@ -218,6 +225,24 @@ function renderMarkets() {
   }).join("");
 }
 
+// The fund editor exists only on the local page (it needs the control token); the hosted copy has no TOKEN and stays read-only.
+function renderFunds(w) {
+  const box = $("sw-fund");
+  if (typeof TOKEN === "undefined" || !w.funds) { box.hidden = true; return; }
+  box.hidden = false;
+  if (!box.dataset.built) {
+    box.innerHTML = `<span>Fund per account (USD):</span>` + Object.keys(w.funds).map(n =>
+      `<label>${esc(n)} <input type="number" min="100" max="10000000" step="100" data-fund="${esc(n)}"> <button type="button" data-set="${esc(n)}">Set</button></label>`
+    ).join("") + `<span class="msg" id="sw-fund-msg">Changing a fund restarts that one account from now: its open paper trades are closed at the last price and its stats start again from zero. The other accounts are not touched and old trades stay in the journal.</span>`;
+    box.dataset.built = "1";
+  }
+  box.querySelectorAll("input[data-fund]").forEach(inp => {
+    const cur = w.funds[inp.dataset.fund];
+    inp.placeholder = String(cur);
+    if (document.activeElement !== inp && !inp.dataset.dirty) inp.value = cur;
+  });
+}
+
 function renderSwing() {
   const w = snap.swing, off = $("sw-off"), on = $("sw-on");
   if (!w) { off.hidden = false; on.hidden = true; $("sw-hint").textContent = ""; return; }
@@ -228,7 +253,7 @@ function renderSwing() {
   $("sw-hint").textContent = w.loading ? "loading the first candles…"
     : `${w.interval} · ${w.symbols.length > 8 ? w.symbols.length + " markets" : w.symbols.map(s => s.replace(/USDT$/, "")).join(" ")} · since ${new Date(w.start_ts).toISOString().slice(0, 16).replace("T", " ")} UTC · checked ${w.checked_age_s == null ? "–" : dur(w.checked_age_s) + " ago"}`;
   $("sw-accts").innerHTML = w.accounts.length ? w.accounts.map(a =>
-    `<div class="kpi"><div class="l">${esc(a.strategy)}</div><div class="v">${usd(a.equity)}</div>` +
+    `<div class="kpi"><div class="l">${esc(a.strategy)} · ${usd(a.capital)} fund</div><div class="v">${usd(a.equity)}</div>` +
     `<div class="s"><span class="${cls(a.return_pct)}">${sg(a.return_pct, 2)}%</span> · ${a.open} open · ${a.closed} closed${a.closed ? ` · ${a.wins}W · ${sg(a.avg_r, 2)}R avg` : ""}</div></div>`
   ).join("") : `<div class="empty">Loading the first candles…</div>`;
   $("sw-open").innerHTML = w.open.length ? w.open.map(p =>
@@ -240,7 +265,8 @@ function renderSwing() {
   $("sw-trades").innerHTML = w.trades.length ? w.trades.map(t =>
     `<tr title="${esc(new Date(t.closed_at).toISOString().slice(0, 16).replace("T", " "))} UTC"><td class="sym">${esc(t.strategy)}</td><td class="sym">${coin(t.symbol)}</td><td>${side(t.side)}</td><td class="n">${px(t.entry)} → ${px(t.exit)}</td><td class="n ${cls(t.pnl)}">${money(t.pnl)}</td><td class="n ${cls(t.r)}">${sg(t.r, 2)}R</td><td class="mut">${esc(t.reason)}</td></tr>`
   ).join("") : `<tr><td colspan="7" class="empty">No closed swing trades yet.</td></tr>`;
-  $("sw-note").textContent = `Each account starts with $${w.capital.toLocaleString()} and risks ${w.risk_pct}% of its equity per trade. Paper only: nothing here places an order. They decide on closed ${w.interval} candles and fill at the next open, so most of the time they simply wait.` + (w.symbols.length > 8 ? ` Markets: ${w.symbols.map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (Object.keys(w.unavailable || {}).length ? ` Skipped (no usable candles): ${Object.keys(w.unavailable).map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (w.error ? ` The last refresh failed: ${w.error}` : "");
+  renderFunds(w);
+  $("sw-note").textContent = `Each account risks ${w.risk_pct}% of its own equity per trade. Paper only: nothing here places an order. They decide on closed ${w.interval} candles and fill at the next open, so most of the time they simply wait.` + (w.symbols.length > 8 ? ` Markets: ${w.symbols.map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (Object.keys(w.unavailable || {}).length ? ` Skipped (no usable candles): ${Object.keys(w.unavailable).map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (w.error ? ` The last refresh failed: ${w.error}` : "");
 }
 
 function renderAll() {

@@ -38,6 +38,7 @@ WARMUP_BARS = 320          # indicators (EMA200, pivots) need this much history 
 DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
 SYMBOL_RE = re.compile(r"^[A-Z0-9]{5,20}$")
 TOP_RE = re.compile(r"^top(\d{1,3})$", re.IGNORECASE)
+MIN_CAPITAL, MAX_CAPITAL = 100.0, 10_000_000.0       # a paper account's fund, in dollars
 MAX_MARKETS = 100
 FETCH_PARALLEL = 6
 
@@ -139,8 +140,8 @@ class SwingRunner:
         self.notify = notify or (lambda text: None)
         self.risk, self.costs = RiskCfg(risk_pct=cfg.risk_pct), CostCfg()
         self.bar_ms = INTERVAL_MS[cfg.interval]
-        self.symbols, self.start_ts, self.tag = self._begin_run()
-        self._like = f"paper-%-{self.tag}"                        # every account of THIS run
+        self.symbols, self.tag, self.accounts = self._begin_run()
+        self._lock = asyncio.Lock()                               # one replay at a time (the loop and a fund change)
         self.results: dict[str, Result] = {}
         self.checked_at = 0.0
         self.last_error = ""
@@ -153,30 +154,47 @@ class SwingRunner:
         self._sig: tuple | None = None                            # what the last replay was computed from
         self._snap: dict | None = None                            # built once per replay: the dashboard asks every second
 
-    def _begin_run(self) -> tuple[list[str], int, str]:
-        """The market list, start time and run tag. They are written down when a run starts and reused on restarts, so a
-        forward test never changes underneath you (the arbitrage bot's volume ranking moves every day)."""
+    def _begin_run(self) -> tuple[list[str], str, dict[str, dict]]:
+        """The market list, the run tag and each account's {tag, start_ts, capital}. They are written down when a run starts
+        and reused on restarts, so a forward test never changes underneath you (the arbitrage bot's volume ranking moves
+        every day). An account gets its own tag and start when its fund is changed (set_capital)."""
         j, cfg = self.journal, self.cfg
         stored = j.get_state("paper_symbols")
         tag, start = j.get_state("paper_tag"), j.get_state("paper_start_ts")
         syms = json.loads(stored) if stored else None
         fresh = cfg.restart or syms is None or tag is None or start is None
+        accounts = json.loads(j.get_state("paper_accounts") or "{}")
+        if not fresh and not accounts:                            # a run saved before accounts had their own fund
+            accounts = {n: dict(tag=tag, start_ts=int(start), capital=cfg.capital) for n in cfg.strategies}
         if not fresh and not cfg.symbols_auto and sorted(syms) != sorted(cfg.symbols):
-            if j.trades(mode="paper", run_like=f"paper-%-{tag}", limit=1):
+            ids = [f"paper-{n}-{cfg.interval}-{a['tag']}" for n, a in accounts.items()]
+            if j.trades(mode="paper", run_like=ids, limit=1):
                 raise ValueError(f"this paper run started on {len(syms)} markets and already has trades; pass --restart "
                                  f"to begin a new run on these {len(cfg.symbols)}")
             fresh = True                                          # nothing has traded yet: adopting the new list loses nothing
+        now_ms = int(self.clock() * 1000)
         if fresh:
-            start_ms = int(self.clock() * 1000)
-            tag = str(start_ms // 1000)
-            j.set_state("paper_symbols", json.dumps(cfg.symbols))
+            tag, syms = str(now_ms // 1000), list(cfg.symbols)
+            accounts = {n: dict(tag=tag, start_ts=now_ms, capital=cfg.capital) for n in cfg.strategies}
+            j.set_state("paper_symbols", json.dumps(syms))
             j.set_state("paper_tag", tag)
-            j.set_state("paper_start_ts", str(start_ms))
-            return list(cfg.symbols), start_ms, tag
-        return list(syms), int(start), tag
+            j.set_state("paper_start_ts", str(now_ms))
+        for n in cfg.strategies:                                  # a strategy added to the run later starts now
+            accounts.setdefault(n, dict(tag=str(now_ms // 1000), start_ts=now_ms, capital=cfg.capital))
+        accounts = {n: accounts[n] for n in cfg.strategies}
+        j.set_state("paper_accounts", json.dumps(accounts))
+        return list(syms), tag, accounts
+
+    @property
+    def start_ts(self) -> int:
+        """When the oldest account started (how far back the candles must reach)."""
+        return min(a["start_ts"] for a in self.accounts.values())
 
     def run_id(self, name: str) -> str:
-        return f"paper-{name}-{self.cfg.interval}-{self.tag}"
+        return f"paper-{name}-{self.cfg.interval}-{self.accounts[name]['tag']}"
+
+    def _run_ids(self) -> list[str]:
+        return [self.run_id(n) for n in self.accounts]
 
     def _coins(self) -> str:
         names = [s.removesuffix("USDT") for s in self.symbols]
@@ -198,6 +216,10 @@ class SwingRunner:
         return candles, live
 
     async def refresh(self) -> list[str]:
+        async with self._lock:
+            return await self._refresh()
+
+    async def _refresh(self) -> list[str]:
         cfg, now = self.cfg, self.clock()
         now_ms = int(now * 1000)
         days = -(-(WARMUP_BARS * self.bar_ms + max(0, now_ms - self.start_ts)) // DAY_MS) + 1
@@ -254,8 +276,9 @@ class SwingRunner:
         out = {}
         for name in self.cfg.strategies:
             factory = lambda n=name: make(n, allow_short=self.cfg.allow_short, **self.cfg.params.get(n, {}))  # noqa: E731
-            out[name] = run_backtest(data, factory, self.risk, self.costs, self.cfg.capital, self.bar_ms,
-                                     funding or None, close_at_end=False, start_ts=self.start_ts - self.bar_ms,
+            acct = self.accounts[name]
+            out[name] = run_backtest(data, factory, self.risk, self.costs, acct["capital"], self.bar_ms,
+                                     funding or None, close_at_end=False, start_ts=acct["start_ts"] - self.bar_ms,
                                      partial_last=set(forming))
         return out
 
@@ -284,7 +307,7 @@ class SwingRunner:
                                 f"   in {p['entry_px']:.6g}   stop {p['stop0']:.6g}   target {self._target(p['target'])}\n"
                                 f"   risk ${p['risk_usd']:.2f} ({self.cfg.risk_pct:g}% of the account)\n   why: {p['reason_in']}")
             for sym, st in res.pending.items():
-                key = f"{self.tag}:{name}:{sym}:{st.index}"
+                key = f"{self.accounts[name]['tag']}:{name}:{sym}:{st.index}"
                 if key not in notified:
                     notified.add(key)
                     msgs.append(f"🔔 SWING SETUP [{name}] {sym} {st.side.upper()}: paper entry at the next {tf} open\n"
@@ -320,14 +343,17 @@ class SwingRunner:
     def _meta(self) -> dict:
         c = self.cfg
         return dict(interval=c.interval, symbols=list(self.symbols), strategies=list(c.strategies), capital=c.capital,
-                    risk_pct=c.risk_pct, start_ts=self.start_ts, market=c.market, unavailable=dict(self.unavailable))
+                    risk_pct=c.risk_pct, start_ts=self.start_ts, market=c.market, unavailable=dict(self.unavailable),
+                    funds={n: a["capital"] for n, a in self.accounts.items()})
 
     def _build_snapshot(self) -> dict:
         accounts, open_, setups = [], [], []
         for name, res in self.results.items():
-            st = self.journal.stats(mode="paper", strategy=name, run_like=self._like)
-            equity = res.equity[-1][1] if res.equity else self.cfg.capital
-            accounts.append(dict(strategy=name, equity=equity, return_pct=(equity / self.cfg.capital - 1) * 100,
+            acct = self.accounts[name]
+            st = self.journal.stats(mode="paper", run_id=self.run_id(name))
+            equity = res.equity[-1][1] if res.equity else acct["capital"]
+            accounts.append(dict(strategy=name, equity=equity, return_pct=(equity / acct["capital"] - 1) * 100,
+                                 capital=acct["capital"], start_ts=acct["start_ts"],
                                  open=len(res.open_positions), closed=st["closed"], wins=st["wins"],
                                  win_rate=st["win_rate"], avg_r=st["avg_r"], total_pnl=st["total_pnl"]))
             open_ += [dict(strategy=name, symbol=p["symbol"], side=p["side"], entry=p["entry_px"], stop=p["stop"],
@@ -338,7 +364,7 @@ class SwingRunner:
         trades = [dict(id=t["id"], strategy=t["strategy"], symbol=t["symbol"], side=t["side"], entry=t["entry"],
                        exit=t["exit"], pnl=t["pnl_usd"], r=t["r_multiple"], reason=t["reason_out"],
                        opened_at=t["opened_at"], closed_at=t["closed_at"])
-                  for t in self.journal.trades(mode="paper", status="closed", run_like=self._like, limit=10)]
+                  for t in self.journal.trades(mode="paper", status="closed", run_like=self._run_ids(), limit=10)]
         return dict(self._meta(), loading=False, accounts=accounts, open=open_, setups=setups, trades=trades)
 
     def snapshot(self) -> dict:
@@ -387,14 +413,15 @@ class SwingRunner:
         lines = [f"📊 Swing paper accounts · {self.cfg.interval} · {self._coins()} · since {_utc(self.start_ts)} UTC · "
                  f"checked {_ago(self.clock() - self.checked_at)} ago"]
         for name, res in self.results.items():
-            equity = res.equity[-1][1] if res.equity else self.cfg.capital
-            closed = self.journal.stats(mode="paper", strategy=name, run_like=self._like)["closed"]
-            lines.append(f"• {name}: ${equity:,.2f} ({(equity / self.cfg.capital - 1) * 100:+.1f}%) · "
+            cap = self.accounts[name]["capital"]
+            equity = res.equity[-1][1] if res.equity else cap
+            closed = self.journal.stats(mode="paper", run_id=self.run_id(name))["closed"]
+            lines.append(f"• {name}: ${equity:,.2f} ({(equity / cap - 1) * 100:+.1f}% on ${cap:,.0f}) · "
                          f"{len(res.open_positions)} open · {closed} closed")
             for p in res.open_positions:
                 lines.append(f"    {p['symbol']} {p['side'].upper()} in {p['entry_px']:.6g}, now {p['mark']:.6g}, "
                              f"stop {p['stop']:.6g} · {p['unrealised_usd']:+.2f} USD ({p['unrealised_r']:+.2f}R)")
-        lines.append(f"Each account starts with ${self.cfg.capital:,.0f} and risks {self.cfg.risk_pct:g}% per trade. "
+        lines.append(f"Each account risks {self.cfg.risk_pct:g}% of its own fund per trade. "
                      f"Paper only; the arbitrage bot is separate.")
         if (u := self._unavailable_line()):
             lines.append(u)
@@ -404,5 +431,40 @@ class SwingRunner:
 
     def journal_text(self, n: int = 5) -> str:
         n = max(1, min(n, 15))
-        return (format_stats(self.journal.stats(mode="paper", run_like=self._like)) + "\n\n"
-                + format_trades(self.journal.trades(mode="paper", run_like=self._like, limit=n)))
+        ids = self._run_ids()
+        return (format_stats(self.journal.stats(mode="paper", run_like=ids)) + "\n\n"
+                + format_trades(self.journal.trades(mode="paper", run_like=ids, limit=n)))
+
+    # ---- changing an account's fund --------------------------------------------------------------
+    async def set_capital(self, name: str, amount) -> str:
+        """Give one paper account a new fund. The replay fixes position sizes from the starting fund, so the honest way to
+        change it is to restart THAT account from now: its open paper positions are closed at their last mark ("account
+        reset"), the old trades stay in the journal but leave the account's stats, and the other accounts are untouched."""
+        if name not in self.accounts:
+            raise ValueError(f"unknown account {name!r}; choose one of {', '.join(self.accounts)}")
+        try:
+            amount = float(amount)
+        except (TypeError, ValueError):
+            raise ValueError("the fund must be a number") from None
+        if not (MIN_CAPITAL <= amount <= MAX_CAPITAL):                 # also rejects nan and inf
+            raise ValueError(f"the fund must be between ${MIN_CAPITAL:,.0f} and ${MAX_CAPITAL:,.0f}")
+        async with self._lock:
+            old = self.accounts[name]
+            if abs(amount - old["capital"]) < 0.005:
+                return f"{name} already has ${amount:,.2f}"
+            now_ms = int(self.clock() * 1000)
+            marks = {(p["symbol"], p["entry_ts"]): p for p in (self.results[name].open_positions if name in self.results else [])}
+            for row in self.journal.trades(mode="paper", strategy=name, status="open", run_id=self.run_id(name), limit=None):
+                p = marks.get((row["symbol"], row["opened_at"]))
+                self.journal.close_trade(
+                    row["id"], closed_at=now_ms, exit=p["mark"] if p else row["entry"],
+                    pnl_usd=p["unrealised_usd"] if p else 0.0, fees_usd=0.0, r_multiple=p["unrealised_r"] if p else 0.0,
+                    reason_out="account reset: fund changed")
+            self.accounts[name] = dict(tag=str(max(now_ms // 1000, int(old["tag"]) + 1)), start_ts=now_ms, capital=amount)
+            self.journal.set_state("paper_accounts", json.dumps(self.accounts))
+            self.results.pop(name, None)
+            self._sig = None                                           # force a replay
+            self.notify(f"💰 SWING fund [{name}] ${old['capital']:,.0f} → ${amount:,.0f}. The account restarted from now "
+                        f"(open paper trades closed at their last price; the old trades stay in the journal).")
+            await self._refresh()
+        return f"{name} now has ${amount:,.2f}"
