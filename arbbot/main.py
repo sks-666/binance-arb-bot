@@ -24,6 +24,7 @@ from .health import hosted_port
 from .hosted_dashboard import MIN_PASSWORD, make_hosted_app, settings_from_env
 from .live import LiveExecutor
 from .market import MarketData
+from .paper_futures import PaperFutures
 from .portfolio import Portfolio, Store
 from .publisher import SnapshotPublisher
 from .recorder import DepthSampler, Recorder
@@ -243,7 +244,10 @@ async def amain(args: argparse.Namespace) -> None:
                 sys.exit(f"--swing: {e}")
             handler.swing = engine.swing = swing
         listener = TelegramListener(cfg.alerts, alerts, handler, poll_timeout_s=cfg.alerts.poll_timeout_s)
-        dash = Dashboard(engine, cfg, ROOT / "web", market=MarketData(client))  # chart / order book panel (read-only)
+        # the dashboard's order ticket trades a PAPER futures account at live prices; it never touches the executor
+        paper_futures = PaperFutures(ROOT / "data" / "paper-futures.json", client, cfg.fees.futures_taker_bps,
+                                     notify=alerts.send)
+        dash = Dashboard(engine, cfg, ROOT / "web", market=MarketData(client), paper=paper_futures)
         if args.hosted:  # public interface: the READ-ONLY page behind a login, never the dashboard with its controls
             hosted_password, hosted_user = settings_from_env()
             runner = web.AppRunner(make_hosted_app(engine, ROOT / "vercel-dashboard" / "views" / "dashboard.html",
@@ -294,7 +298,8 @@ async def amain(args: argparse.Namespace) -> None:
             url_fp, token_fp = publisher.fingerprints()
             log.info("hosted dashboard: publishing a read-only snapshot every %.0fs (settings fingerprint: url %s, token %s)",
                      cfg.publisher.interval_s, url_fp, token_fp)
-        coros = [feed.run(), engine.run(), dash.broadcast_loop(), alerts.run(), listener.run(), publisher.run()]
+        coros = [feed.run(), engine.run(), dash.broadcast_loop(), alerts.run(), listener.run(), publisher.run(),
+                 paper_futures.run()]
         if sampler is not None:
             coros.append(sampler.run())
         if swing is not None:

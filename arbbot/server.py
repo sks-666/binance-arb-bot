@@ -20,9 +20,10 @@ ACTIONS = ("halt", "resume", "flatten")
 
 
 class Dashboard:
-    def __init__(self, engine: Engine, cfg: Config, web_dir: Path, market=None):
+    def __init__(self, engine: Engine, cfg: Config, web_dir: Path, market=None, paper=None):
         self.engine = engine
         self.market = market                      # an arbbot.market.MarketData for the chart / order book panel, or None
+        self.paper = paper                        # an arbbot.paper_futures.PaperFutures for the order ticket, or None
         self.cfg = cfg
         self.web_dir = web_dir
         self.token = secrets.token_urlsafe(24)
@@ -47,6 +48,8 @@ class Dashboard:
         app.router.add_get("/ws", self.ws)
         app.router.add_get("/api/snapshot", self.snapshot)
         app.router.add_get("/api/market/{kind}", self.market_data)
+        app.router.add_get("/api/paper/state", self.paper_state)
+        app.router.add_post("/api/paper/{op}", self.paper_action)
         app.router.add_post("/api/swing-capital", self.swing_capital)      # before the generic /api/{action}
         app.router.add_post("/api/{action}", self.action)
         return app
@@ -70,6 +73,45 @@ class Dashboard:
             return web.json_response({"error": str(e)}, status=400)
         except Exception as e:                    # Binance down, unknown symbol, rate limit: the panel shows it, nothing else
             return web.json_response({"error": f"{type(e).__name__}: {str(e)[:160]}"}, status=502)
+
+    async def paper_state(self, request: web.Request) -> web.Response:
+        if self.paper is None:
+            return web.json_response({"error": "the paper futures account is not running in this bot"}, status=404)
+        return web.json_response(self.paper.view(), headers={"Cache-Control": "no-store"})
+
+    async def paper_action(self, request: web.Request) -> web.Response:
+        """The order ticket: PAPER orders only (arbbot/paper_futures.py). Nothing here reaches the live executor."""
+        if not hmac.compare_digest(request.headers.get("X-Token", ""), self.token):
+            raise web.HTTPForbidden(text="bad token")
+        if self.paper is None:
+            return web.json_response({"ok": False, "error": "the paper futures account is not running in this bot"},
+                                     status=404)
+        op = request.match_info["op"]
+        try:
+            body = await request.json()
+            if not isinstance(body, dict):
+                raise ValueError("expected a JSON object")
+            if op == "order":
+                result = await self.paper.place_order(body)
+            elif op == "cancel":
+                result = await self.paper.cancel(body.get("id"))
+            elif op == "close":
+                result = await self.paper.close_position(body.get("symbol", ""))
+            elif op == "leverage":
+                result = await self.paper.set_leverage(body.get("symbol", ""), body.get("leverage"))
+            elif op == "transfer":
+                result = await self.paper.transfer(body.get("amount"))
+            else:
+                raise web.HTTPNotFound()
+        except ValueError as e:                                             # a refused order: say why
+            return web.json_response({"ok": False, "error": str(e)}, status=400)
+        except web.HTTPException:
+            raise
+        except Exception as e:                                              # Binance unreachable for the price
+            log.warning("paper %s failed: %s: %s", op, type(e).__name__, e)
+            return web.json_response({"ok": False, "error": f"could not get a price from Binance ({type(e).__name__})"},
+                                     status=502)
+        return web.json_response({"ok": True, "result": result, "state": self.paper.view()})
 
     async def swing_capital(self, request: web.Request) -> web.Response:
         """Give one swing paper account a new fund (see SwingRunner.set_capital: that account restarts from now)."""

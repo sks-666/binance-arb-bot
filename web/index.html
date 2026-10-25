@@ -19,6 +19,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; }
   body { background: var(--bg); color: var(--text); font: 14px/1.45 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
   .num, td.n, .kpi .v { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
@@ -123,6 +124,57 @@
   .bk-mid .p { font: 650 20px/1.2 ui-monospace, "SF Mono", Menlo, monospace; }
   .bk-mid .m { color: var(--muted); font: 12px ui-monospace, Menlo, monospace; }
   #mk-movers tr { cursor: pointer; } #mk-movers tr:hover td { background: var(--panel-2); }
+  .mk-grid.three { grid-template-columns: minmax(0, 1fr) minmax(260px, 300px) minmax(280px, 320px); }
+  @media (max-width: 1380px) { .mk-grid.three { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .mk-grid.three .mk-chartbox { grid-column: 1 / -1; } }
+  @media (max-width: 720px) { .mk-grid.three { grid-template-columns: minmax(0, 1fr); } }
+  .ot { padding: 10px 12px 12px; font-size: 13px; }
+  .ot-top { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .ot-top .badge { margin-left: auto; }
+  .ot-chip { min-height: 28px; padding: 3px 12px; font-size: 12.5px; background: var(--panel-2); }
+  .ot-chip:disabled { cursor: default; opacity: 1; color: var(--text); }
+  .ot-tabs { display: flex; gap: 14px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  .ot-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 6px 0; min-height: 0; color: var(--muted); font-size: 14px; }
+  .ot-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--warn); }
+  .ot-avbl { color: var(--muted); margin-bottom: 8px; display: flex; align-items: center; gap: 4px; }
+  .ot-avbl b { color: var(--text); font-family: ui-monospace, Menlo, monospace; }
+  .ot-ico { min-height: 0; padding: 0 4px; background: none; border: 0; color: var(--warn); font-size: 15px; }
+  .ot-row { margin-bottom: 8px; }
+  .ot-lab { color: var(--muted); font-size: 12px; margin-bottom: 3px; }
+  .ot-in { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); padding: 0 8px; min-height: 36px; flex: 1; min-width: 0; }
+  .ot-in:focus-within { border-color: var(--warn); }
+  .ot-in input { flex: 1; min-width: 0; border: 0; background: none; color: var(--text); font: 14px ui-monospace, Menlo, monospace; padding: 7px 0; outline: none; }
+  .ot-in input:disabled { color: var(--muted); }
+  .ot-in .u { color: var(--muted); font-size: 12.5px; }
+  .ot-in select, select.ot-side, .ot-tif select { border: 0; background: none; color: var(--text); font: inherit; font-size: 12.5px; }
+  .ot-pair { display: flex; gap: 6px; }
+  .ot-side { min-height: 36px; padding: 0 10px; border: 1px solid var(--line) !important; border-radius: 8px; background: var(--panel-2); }
+  #ot-bbo[aria-pressed="true"] { border-color: var(--warn) !important; color: var(--warn); }
+  .ot-slider { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; }
+  .ot-slider input { flex: 1; accent-color: var(--warn); }
+  .ot-slider span { color: var(--muted); font: 11.5px ui-monospace, Menlo, monospace; width: 34px; text-align: right; }
+  .ot-sep { border-top: 1px solid var(--line); margin: 4px 0 8px; }
+  .ot-ck { display: flex; align-items: center; gap: 7px; margin: 6px 0; color: var(--text); cursor: pointer; }
+  .ot-ck input[type="checkbox"] { accent-color: var(--warn); width: 15px; height: 15px; }
+  .ot-mini { width: 46px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text); font: 12.5px ui-monospace, Menlo, monospace; padding: 2px 4px; }
+  .ot-tpsl { display: grid; gap: 6px; margin: 4px 0 6px 22px; }
+  .ot-hint { color: var(--muted); font-size: 11.5px; }
+  .ot-ckrow { display: flex; justify-content: space-between; align-items: center; }
+  .ot-tif { color: var(--muted); font-size: 12.5px; }
+  .ot-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 8px; }
+  .ot-buy, .ot-sell { min-height: 40px; border: 0; color: #fff; font-size: 14.5px; }
+  .ot-buy { background: #2ebd85; } .ot-sell { background: #f6465d; }
+  .ot-buy:hover, .ot-sell:hover { filter: brightness(1.08); }
+  .ot-buy:disabled, .ot-sell:disabled { opacity: .55; cursor: wait; }
+  .ot-ok { background: var(--warn); color: #111; border-color: var(--warn); }
+  .ot-est { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; font-size: 12px; color: var(--muted); }
+  .ot-est div:nth-child(even) { text-align: right; }
+  .ot-est b { color: var(--text); font-weight: 500; font-family: ui-monospace, Menlo, monospace; }
+  .ot-fee { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .ot-msg { margin-top: 8px; font-size: 12.5px; min-height: 18px; }
+  .ot-levbox { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-bottom: 8px; background: var(--panel-2); display: grid; gap: 6px; }
+  .ot-levbox input[type="range"] { accent-color: var(--warn); }
+  .ot-lev-note { color: var(--warn); font-size: 11.5px; min-height: 14px; }
+  td .mini { min-height: 24px; padding: 1px 8px; font-size: 12px; }
   td.why { white-space: normal; min-width: 240px; text-align: left; color: var(--muted); font-size: 12.5px; }
   th.why { text-align: left; }
   .side-long { color: var(--pos); font-weight: 650; } .side-short { color: var(--neg); font-weight: 650; }
@@ -201,8 +253,8 @@
   <!--MARKET-->
   <section class="card" id="mk-card" aria-labelledby="h-market" style="margin-top:14px">
     <div class="card-h"><h2 id="h-market">Market · Binance USD-M futures</h2><span class="hint" id="mk-hint">connecting…</span></div>
-    <div class="mk-grid">
-      <div class="mk-box">
+    <div class="mk-grid three">
+      <div class="mk-box mk-chartbox">
         <div class="mk-tabs" role="tablist" aria-label="Market views">
           <button class="mk-tab" role="tab" data-tab="chart">Chart</button>
           <button class="mk-tab" role="tab" data-tab="info">Info</button>
@@ -230,6 +282,52 @@
         <div class="bk-mid"><span class="p" id="bk-last">–</span><span class="m" id="bk-mark"></span></div>
         <div id="bk-bids"></div>
       </div>
+      <div class="mk-box ot" id="ot">
+        <div class="ot-top">
+          <button type="button" class="ot-chip" disabled title="The paper account uses isolated margin">Isolated</button>
+          <button type="button" class="ot-chip" id="ot-lev" title="Leverage for this market">15x</button>
+          <button type="button" class="ot-chip" disabled title="Single-asset mode: margin in USDT">S</button>
+          <span class="badge paper" title="Orders fill against live Binance prices in a paper account. Nothing is ever sent to Binance.">PAPER</span>
+        </div>
+        <div class="ot-levbox" id="ot-levbox" hidden>
+          <div class="ot-lab">Leverage for <span id="ot-levsym"></span></div>
+          <div class="ot-in"><input id="ot-levn" type="number" min="1" max="125" step="1" aria-label="Leverage"><span class="u">x</span></div>
+          <input id="ot-levr" type="range" min="1" max="125" step="1" aria-label="Leverage slider">
+          <div class="ot-lev-note" id="ot-lev-note"></div>
+          <div class="ot-btns"><button type="button" id="ot-levcancel">Cancel</button><button type="button" id="ot-levok" class="ot-ok">Confirm</button></div>
+        </div>
+        <div class="ot-tabs" role="tablist" aria-label="Order type">
+          <button type="button" role="tab" data-ot="limit">Limit</button><button type="button" role="tab" data-ot="market">Market</button><button type="button" role="tab" data-ot="cond">Conditional</button>
+        </div>
+        <div class="ot-avbl">Avbl <b id="ot-avbl">–</b> USDT <button type="button" class="ot-ico" id="ot-transfer" title="Add or take out paper USDT">⇆</button></div>
+        <div class="ot-row" id="ot-stop-row"><div class="ot-lab">Stop Price</div>
+          <div class="ot-in"><input id="ot-stop" inputmode="decimal" autocomplete="off" aria-label="Stop price"><select id="ot-trigger" aria-label="Trigger price"><option value="last">Last</option><option value="mark">Mark</option></select></div></div>
+        <div class="ot-row" id="ot-price-row"><div class="ot-lab">Price</div>
+          <div class="ot-pair"><div class="ot-in"><input id="ot-price" inputmode="decimal" autocomplete="off" aria-label="Price"><span class="u">USDT</span></div>
+            <button type="button" class="ot-side" id="ot-bbo" aria-pressed="false" title="Best bid (buy) / best ask (sell) at the moment you order">BBO</button>
+            <select class="ot-side" id="ot-ctype" aria-label="Order released by the stop"><option value="limit">Limit</option><option value="market">Market</option></select></div></div>
+        <div class="ot-row"><div class="ot-lab">Size</div>
+          <div class="ot-in"><input id="ot-size" inputmode="decimal" autocomplete="off" aria-label="Size"><select id="ot-unit" aria-label="Size unit"><option value="usdt">USDT</option><option value="coin">BTC</option></select></div></div>
+        <div class="ot-slider"><input id="ot-pct" type="range" min="0" max="100" step="1" value="0" aria-label="Size as a share of the maximum"><span id="ot-pct-l">0%</span></div>
+        <div class="ot-sep"></div>
+        <label class="ot-ck" id="ot-slip-row"><input type="checkbox" id="ot-slip-on"> Slippage Tolerance <span id="ot-slip-box" hidden><input id="ot-slip" class="ot-mini" value="0.5" inputmode="decimal" aria-label="Slippage tolerance"> %</span></label>
+        <label class="ot-ck"><input type="checkbox" id="ot-tpsl-on"> TP/SL</label>
+        <div class="ot-tpsl" id="ot-tpsl" hidden>
+          <div class="ot-in"><input id="ot-tp" inputmode="decimal" placeholder="Take profit" aria-label="Take profit price"><span class="u">USDT</span></div>
+          <div class="ot-in"><input id="ot-sl" inputmode="decimal" placeholder="Stop loss" aria-label="Stop loss price"><span class="u">USDT</span></div>
+          <div class="ot-hint">Long: TP above, SL below the entry. Short: the other way round.</div>
+        </div>
+        <div class="ot-ckrow"><label class="ot-ck"><input type="checkbox" id="ot-ro"> Reduce-Only</label>
+          <span id="ot-tif-row" class="ot-tif">TIF <select id="ot-tif" aria-label="Time in force"><option>GTC</option><option>IOC</option><option>FOK</option></select></span></div>
+        <div class="ot-btns"><button type="button" class="ot-buy" id="ot-buy">Buy/Long</button><button type="button" class="ot-sell" id="ot-sell">Sell/Short</button></div>
+        <div class="ot-est">
+          <div><span>Liq Price</span> <b id="ot-liq-b">--</b> USDT</div><div><span>Liq Price</span> <b id="ot-liq-s">--</b> USDT</div>
+          <div><span>Cost</span> <b id="ot-cost-b">0.00</b> USDT</div><div><span>Cost</span> <b id="ot-cost-s">0.00</b> USDT</div>
+          <div><span>Max</span> <b id="ot-max-b">0.00</b> USDT</div><div><span>Max</span> <b id="ot-max-s">0.00</b> USDT</div>
+        </div>
+        <div class="ot-fee" id="ot-fee">% Fee level</div>
+        <div class="ot-msg" id="ot-msg" role="status" aria-live="polite"></div>
+      </div>
     </div>
     <div class="mk-grid one">
       <div class="mk-box">
@@ -240,6 +338,21 @@
         </div>
         <div id="mk-pane-trades" class="tbl scroll mid"><table><thead><tr><th style="text-align:left">Price (USDT)</th><th>Amount (USDT)</th><th>Time</th></tr></thead><tbody id="mk-trades"></tbody></table></div>
         <div id="mk-pane-movers" class="tbl scroll mid" hidden><table><thead><tr><th style="text-align:left">Market</th><th>Last</th><th>24h</th><th>24h volume</th></tr></thead><tbody id="mk-movers"></tbody></table></div>
+      </div>
+      <div class="mk-box">
+        <div class="mk-tabs" role="tablist" aria-label="Paper futures account">
+          <button class="mk-tab" role="tab" data-pf="pos">Positions (<span id="pf-npos">0</span>)</button>
+          <button class="mk-tab" role="tab" data-pf="orders">Open Orders (<span id="pf-nord">0</span>)</button>
+          <button class="mk-tab" role="tab" data-pf="hist">Order History</button>
+          <button class="mk-tab" role="tab" data-pf="trades">Trade History</button>
+          <button class="mk-tab" role="tab" data-pf="assets">Assets</button>
+          <span class="mk-spread">paper futures account</span>
+        </div>
+        <div id="pf-pane-pos" class="tbl scroll mid"><table><thead><tr><th style="text-align:left">Market</th><th>Size</th><th>Entry</th><th>Mark</th><th>Liq. price</th><th>Margin</th><th>PnL (ROE)</th><th>TP / SL</th><th>Close</th></tr></thead><tbody id="pf-pos"></tbody></table></div>
+        <div id="pf-pane-orders" class="tbl scroll mid" hidden><table><thead><tr><th style="text-align:left">Time</th><th style="text-align:left">Market</th><th>Type</th><th>Side</th><th>Price</th><th>Trigger</th><th>Amount</th><th>Reduce-only</th><th>TIF</th><th>Cancel</th></tr></thead><tbody id="pf-orders"></tbody></table></div>
+        <div id="pf-pane-hist" class="tbl scroll mid" hidden><table><thead><tr><th style="text-align:left">Time</th><th style="text-align:left">Market</th><th>Type</th><th>Side</th><th>Avg / price</th><th>Amount</th><th>Status</th><th class="why">Note</th></tr></thead><tbody id="pf-hist"></tbody></table></div>
+        <div id="pf-pane-trades" class="tbl scroll mid" hidden><table><thead><tr><th style="text-align:left">Time</th><th style="text-align:left">Market</th><th>Side</th><th>Price</th><th>Amount</th><th>Fee</th><th>Realized PnL</th><th>Role</th></tr></thead><tbody id="pf-trades"></tbody></table></div>
+        <div id="pf-pane-assets" hidden><div class="mk-kv" id="pf-assets"></div></div>
       </div>
     </div>
     <div class="sw-note">Live public market data from Binance USD-M futures, relayed by this bot (read-only: nothing here can place an order). Click a top mover to chart it.</div>
@@ -473,12 +586,21 @@ async function mkGet(kind, params) {
 }
 function mkLines() {   // the swing paper positions (and waiting setups) on the charted market, drawn as price lines
   const w = snap && snap.swing, out = [], accent = cssVar("--accent");
-  if (!w) return out;
-  for (const p of w.open || []) if (p.symbol === MK.sym) {
+  for (const p of (w && w.open) || []) if (p.symbol === MK.sym) {
     out.push({ px: p.entry, label: `${p.strategy} ${p.side} entry`, color: accent }, { px: p.stop, label: `${p.strategy} stop`, color: cssVar("--neg") });
     if (p.target != null) out.push({ px: p.target, label: `${p.strategy} target`, color: cssVar("--pos") });
   }
-  for (const s of w.setups || []) if (s.symbol === MK.sym) out.push({ px: s.near, label: `${s.strategy} ${s.side} setup`, color: cssVar("--warn") });
+  for (const s of (w && w.setups) || []) if (s.symbol === MK.sym) out.push({ px: s.near, label: `${s.strategy} ${s.side} setup`, color: cssVar("--warn") });
+  if (OT && OT.st) {   // the paper futures account: its position, liquidation price and working orders on this market
+    for (const p of OT.st.positions) if (p.symbol === MK.sym) {
+      out.push({ px: p.entry, label: `paper ${p.side} ${p.leverage}x entry`, color: "#f0b90b" });
+      if (p.liq) out.push({ px: p.liq, label: "paper liq. price", color: cssVar("--warn") });
+    }
+    for (const o of OT.st.orders) if (o.symbol === MK.sym) {
+      const px = o.price != null && (o.type === "limit" || o.triggered) ? o.price : o.stop_price;
+      if (px) out.push({ px, label: `paper ${o.reason || o.side + " " + o.type.replace("_", " ")}`, color: cssVar("--muted") });
+    }
+  }
   return out;
 }
 
@@ -587,7 +709,7 @@ function renderBook() {
   if (!b) { $("bk-asks").innerHTML = $("bk-bids").innerHTML = ""; $("bk-spread").textContent = ""; renderBookMid(); return; }
   const rows = side => { let s = 0; return side.slice(0, 8).map(([p, q]) => { const u = p * q; s += u; return [p, u, s]; }); };
   const asks = rows(b.asks), bids = rows(b.bids), max = Math.max(asks.length ? asks[asks.length - 1][2] : 0, bids.length ? bids[bids.length - 1][2] : 0) || 1;
-  const row = (cls, [p, u, sum]) => `<div class="bk-row ${cls}"><i style="width:${(sum / max * 100).toFixed(1)}%"></i><span>${fmtP(p)}</span><span>${compact(u)}</span><span>${compact(sum)}</span></div>`;
+  const row = (cls, [p, u, sum]) => `<div class="bk-row ${cls}" data-px="${p}" title="Use this price in the order ticket"><i style="width:${(sum / max * 100).toFixed(1)}%"></i><span>${fmtP(p)}</span><span>${compact(u)}</span><span>${compact(sum)}</span></div>`;
   $("bk-asks").innerHTML = asks.slice().reverse().map(r => row("bk-ask", r)).join("");
   $("bk-bids").innerHTML = bids.map(r => row("bk-bid", r)).join("");
   $("bk-spread").textContent = b.asks.length && b.bids.length ? "spread " + fmtP(b.asks[0][0] - b.bids[0][0]) : "";
@@ -722,6 +844,247 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
 document.addEventListener("visibilitychange", () => { if (!document.hidden) mkTick(); });
 mkShowTabs(); renderTrades(); renderBookMid();
 setInterval(mkTick, 1000);
+
+// ---- paper order ticket + paper futures account (local page only; arbbot/paper_futures.py, nothing reaches Binance) ----
+var OT = { type: "limit", bbo: false, unit: "usdt", pf: "pos", st: null, err: "", priceSym: "", busy: false };
+try {
+  const s = JSON.parse(localStorage.getItem("ot") || "{}");
+  if (["limit", "market", "cond"].includes(s.type)) OT.type = s.type;
+  if (["pos", "orders", "hist", "trades", "assets"].includes(s.pf)) OT.pf = s.pf;
+  if (s.unit === "coin") OT.unit = "coin";
+} catch (_) { /* defaults */ }
+function otSave() { try { localStorage.setItem("ot", JSON.stringify({ type: OT.type, pf: OT.pf, unit: OT.unit })); } catch (_) { } }
+const fmt2 = v => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const coin = () => MK.sym.replace(/USDT$/, "");
+const otLev = () => OT.st ? (OT.st.leverage[MK.sym] || OT.st.default_leverage) : 15;
+const numIn = id => { const v = parseFloat(String($(id).value).replace(/,/g, "")); return isFinite(v) && v > 0 ? v : null; };
+const fmtQ = q => q >= 1000 ? q.toLocaleString(undefined, { maximumFractionDigits: 2 }) : q.toPrecision(Math.min(8, Math.max(4, Math.ceil(Math.log10(q + 1)) + 4))).replace(/\.?0+$/, "");
+const tms = ms => new Date(ms).toLocaleString([], { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const typeLabel = o => ({ limit: "Limit", market: "Market", stop_limit: "Stop limit", stop_market: "Stop market" })[o.type] + (o.reason && ["take-profit", "stop-loss", "liquidation"].includes(o.reason) ? ` · ${o.reason}` : "");
+function otLast() { return MK.trades.length ? MK.trades[0].price : MK.k.length ? MK.k[MK.k.length - 1][4] : null; }
+function otTop(buy, own) {   // own=true: our side of the book (BBO); otherwise the side we would take from
+  const b = MK.book;
+  if (!b || !b.asks.length || !b.bids.length) return otLast();
+  return (buy === own) ? b.bids[0][0] : b.asks[0][0];
+}
+function otRef(buy) {
+  if (OT.type === "limit") return OT.bbo ? otTop(buy, true) : numIn("ot-price");
+  if (OT.type === "market") return otTop(buy, false);
+  return $("ot-ctype").value === "limit" ? numIn("ot-price") : numIn("ot-stop");
+}
+function otUsdt(ref) { const v = numIn("ot-size"); return v == null ? null : OT.unit === "usdt" ? v : ref ? v * ref : null; }
+function otMax() { if (!OT.st) return 0; const lev = otLev(), t = OT.st.taker_bps / 1e4; return Math.max(0, OT.st.available * lev / (1 + lev * t)); }
+function otMsg(text, bad) { const m = $("ot-msg"); m.textContent = text; m.className = "ot-msg " + (bad ? "neg" : "pos"); }
+
+function otMode() {
+  document.querySelectorAll(".ot-tabs button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.ot === OT.type)));
+  const cond = OT.type === "cond", condLimit = cond && $("ot-ctype").value === "limit";
+  $("ot-stop-row").hidden = !cond;
+  $("ot-price-row").hidden = !(OT.type === "limit" || condLimit);
+  if (cond && !condLimit) $("ot-price-row").hidden = false;     // keep the Limit/Market switch reachable
+  $("ot-price").parentElement.style.display = cond && !condLimit ? "none" : "";
+  $("ot-bbo").hidden = OT.type !== "limit";
+  $("ot-ctype").hidden = !cond;
+  $("ot-price").disabled = OT.type === "limit" && OT.bbo;
+  if (OT.type === "limit" && OT.bbo) $("ot-price").value = "BBO";
+  else if ($("ot-price").value === "BBO") $("ot-price").value = "";
+  $("ot-bbo").setAttribute("aria-pressed", String(OT.bbo));
+  $("ot-slip-row").hidden = OT.type !== "market";
+  $("ot-tif-row").style.visibility = OT.type === "limit" || condLimit ? "visible" : "hidden";
+  $("ot-unit").value = OT.unit;
+  otEst();
+}
+function otDefaults() {   // fill the price with the last price whenever the charted market changes
+  const last = otLast();
+  if (!last) return;
+  if (OT.priceSym !== MK.sym) {
+    OT.priceSym = MK.sym;
+    if (!(OT.type === "limit" && OT.bbo)) $("ot-price").value = last.toFixed(MK.dp);
+    $("ot-stop").value = ""; $("ot-size").value = ""; $("ot-pct").value = 0; $("ot-pct-l").textContent = "0%";
+    $("ot-tp").value = ""; $("ot-sl").value = ""; $("ot-msg").textContent = "";
+  }
+}
+function otEst() {
+  $("ot-unit").options[1].text = coin();
+  $("ot-lev").textContent = otLev() + "x";
+  $("ot-avbl").textContent = OT.st ? fmt2(OT.st.available) : "–";
+  $("ot-fee").textContent = OT.st ? `% Fee level · maker ${(OT.st.maker_bps / 100).toFixed(3)}% · taker ${(OT.st.taker_bps / 100).toFixed(3)}%`
+    : (OT.err ? "Paper account unavailable: " + OT.err : "% Fee level");
+  const lev = otLev(), t = OT.st ? OT.st.taker_bps / 1e4 : 5e-4, mmr = OT.st ? OT.st.mmr : 0.005, max = otMax(), ro = $("ot-ro").checked;
+  for (const [buy, k] of [[true, "b"], [false, "s"]]) {
+    const ref = otRef(buy), usdt = otUsdt(ref || otLast());
+    $("ot-max-" + k).textContent = fmt2(max);
+    if (!ref || !usdt || ro) { $("ot-liq-" + k).textContent = "--"; $("ot-cost-" + k).textContent = "0.00"; continue; }
+    $("ot-cost-" + k).textContent = fmt2(usdt / lev + usdt * t);
+    $("ot-liq-" + k).textContent = fmtP(buy ? ref * (1 - 1 / lev) / (1 - mmr) : ref * (1 + 1 / lev) / (1 + mmr));
+  }
+}
+async function pfPost(op, body, buttons) {
+  (buttons || []).forEach(b => b.disabled = true);
+  try {
+    const r = await fetch("/api/paper/" + op, { method: "POST", headers: { "X-Token": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+    OT.st = d.state; OT.err = ""; pfRender(); otEst(); requestAnimationFrame(drawChart);
+    return d;
+  } catch (e) { otMsg(e.message, true); return null; }
+  finally { (buttons || []).forEach(b => b.disabled = false); }
+}
+function otDescribe(o) {
+  const what = `${o.side === "buy" ? "Buy/Long" : "Sell/Short"} ${fmtQ(o.qty)} ${o.symbol.replace(/USDT$/, "")}`;
+  if (o.status === "filled") return [`Paper fill: ${what} @ ${fmtP(o.filled_px)} (fee ${fmt2(o.fee)} USDT).`, false];
+  if (o.status === "new") return [`Paper ${typeLabel(o).toLowerCase()} order placed: ${what}${o.price ? " @ " + fmtP(o.price) : ""}${o.stop_price ? ", stop " + fmtP(o.stop_price) : ""}.`, false];
+  return [`Not filled (${o.status}): ${o.reason}`, true];
+}
+async function otSubmit(side) {
+  const req = { symbol: MK.sym, side, reduce_only: $("ot-ro").checked };
+  if (OT.type === "limit") {
+    req.type = "limit"; req.tif = $("ot-tif").value;
+    if (OT.bbo) req.bbo = true; else if (!(req.price = numIn("ot-price"))) return otMsg("Enter a price.", true);
+  } else if (OT.type === "market") {
+    req.type = "market";
+    if ($("ot-slip-on").checked && !(req.slippage_pct = numIn("ot-slip"))) return otMsg("Enter a slippage tolerance in %.", true);
+  } else {
+    const lim = $("ot-ctype").value === "limit";
+    req.type = lim ? "stop_limit" : "stop_market"; req.trigger = $("ot-trigger").value;
+    if (!(req.stop_price = numIn("ot-stop"))) return otMsg("Enter a stop price.", true);
+    if (lim) { req.tif = $("ot-tif").value; if (!(req.price = numIn("ot-price"))) return otMsg("Enter a price.", true); }
+  }
+  const v = numIn("ot-size");
+  if (v == null) return otMsg("Enter a size.", true);
+  if (OT.unit === "usdt") req.size_usdt = v; else req.qty = v;
+  if ($("ot-tpsl-on").checked) {
+    req.tp = numIn("ot-tp"); req.sl = numIn("ot-sl");
+    if (!req.tp && !req.sl) return otMsg("Enter a take-profit and/or stop-loss price, or untick TP/SL.", true);
+  }
+  const d = await pfPost("order", req, [$("ot-buy"), $("ot-sell")]);
+  if (d) {
+    const [text, bad] = otDescribe(d.result);
+    otMsg(text, bad);
+    if (!bad) { $("ot-size").value = ""; $("ot-pct").value = 0; $("ot-pct-l").textContent = "0%"; otEst(); }
+  }
+}
+
+function pfRender() {
+  const st = OT.st;
+  document.querySelectorAll(".mk-tab[data-pf]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.pf === OT.pf)));
+  for (const p of ["pos", "orders", "hist", "trades", "assets"]) $("pf-pane-" + p).hidden = p !== OT.pf;
+  if (!st) {
+    const msg = `<tr><td colspan="10" class="empty">${OT.err ? "Paper account unavailable: " + esc(OT.err) : "Loading…"}</td></tr>`;
+    for (const id of ["pf-pos", "pf-orders", "pf-hist", "pf-trades"]) $(id).innerHTML = msg;
+    return;
+  }
+  $("pf-npos").textContent = st.positions.length; $("pf-nord").textContent = st.orders.length;
+  const sideTxt = s => s === "buy" || s === "long" ? `<span class="pos">${s === "buy" ? "Buy" : "Long"}</span>` : `<span class="neg">${s === "sell" ? "Sell" : "Short"}</span>`;
+  const tpsl = sym => {
+    const kids = st.orders.filter(o => o.symbol === sym && o.reduce_only && o.oco != null);
+    const tp = kids.find(o => o.reason === "take-profit"), sl = kids.find(o => o.reason === "stop-loss");
+    return `${tp ? price(tp.stop_price) : "–"} / ${sl ? price(sl.stop_price) : "–"}`;
+  };
+  $("pf-pos").innerHTML = st.positions.length ? st.positions.map(p =>
+    `<tr><td class="sym" style="text-align:left">${esc(p.symbol)} ${sideTxt(p.side)} <span class="mut">${p.leverage}x</span></td><td class="n">${fmtQ(p.qty)} <span class="mut">${esc(p.symbol.replace(/USDT$/, ""))} · ${compact(p.notional)}</span></td>` +
+    `<td class="n">${price(p.entry)}</td><td class="n">${price(p.mark)}</td><td class="n warn">${p.liq ? price(p.liq) : "–"}</td><td class="n">${fmt2(p.margin)}</td>` +
+    `<td class="n ${cls(p.pnl)}">${money(p.pnl)} (${sg(p.roe, 2)}%)</td><td class="n">${tpsl(p.symbol)}</td>` +
+    `<td><button type="button" class="mini" data-close="${esc(p.symbol)}">Market close</button></td></tr>`
+  ).join("") : `<tr><td colspan="9" class="empty">No open paper positions. Use the order ticket above.</td></tr>`;
+  $("pf-orders").innerHTML = st.orders.length ? st.orders.slice().reverse().map(o =>
+    `<tr><td class="mut" style="text-align:left">${tms(o.created)}</td><td class="sym" style="text-align:left">${esc(o.symbol)}</td><td class="n">${esc(typeLabel(o))}</td><td class="n">${sideTxt(o.side)}</td>` +
+    `<td class="n">${o.price != null ? price(o.price) : "Market"}</td><td class="n">${o.stop_price ? `${o.triggered ? "triggered " : ""}${o.above ? "≥" : "≤"} ${price(o.stop_price)} <span class="mut">${esc(o.trigger)}</span>` : "–"}</td>` +
+    `<td class="n">${fmtQ(o.qty)}</td><td class="n">${o.reduce_only ? "Yes" : "No"}</td><td class="n">${esc(o.tif)}</td>` +
+    `<td><button type="button" class="mini" data-cancel="${o.id}">Cancel</button></td></tr>`
+  ).join("") : `<tr><td colspan="10" class="empty">No open paper orders.</td></tr>`;
+  $("pf-hist").innerHTML = st.order_history.length ? st.order_history.map(o =>
+    `<tr><td class="mut" style="text-align:left">${tms(o.updated)}</td><td class="sym" style="text-align:left">${esc(o.symbol)}</td><td class="n">${esc(typeLabel(o))}</td><td class="n">${sideTxt(o.side)}</td>` +
+    `<td class="n">${o.filled_px != null ? price(o.filled_px) : o.price != null ? price(o.price) : "–"}</td><td class="n">${fmtQ(o.qty)}</td>` +
+    `<td class="n ${o.status === "filled" ? "pos" : o.status === "liquidated" || o.status === "rejected" ? "neg" : "mut"}">${esc(o.status)}</td><td class="why">${esc(o.reason || "")}</td></tr>`
+  ).join("") : `<tr><td colspan="8" class="empty">No paper orders yet.</td></tr>`;
+  $("pf-trades").innerHTML = st.trades.length ? st.trades.map(t =>
+    `<tr><td class="mut" style="text-align:left">${tms(t.time)}</td><td class="sym" style="text-align:left">${esc(t.symbol)}</td><td class="n">${sideTxt(t.side)}</td><td class="n">${price(t.price)}</td>` +
+    `<td class="n">${fmtQ(t.qty)}</td><td class="n">${fmt2(t.fee)}</td><td class="n ${cls(t.realized)}">${t.realized ? money(t.realized) : "–"}</td><td class="n mut">${t.liquidation ? "liquidation" : esc(t.role)}</td></tr>`
+  ).join("") : `<tr><td colspan="8" class="empty">No paper fills yet.</td></tr>`;
+  const kv = (l, v, c) => `<div><div class="l">${l}</div><div class="v ${c || ""}">${v}</div></div>`;
+  $("pf-assets").innerHTML = kv("Wallet balance", fmt2(st.balance) + " USDT") + kv("Available", fmt2(st.available) + " USDT") +
+    kv("Unrealized PnL", money(st.unrealized), cls(st.unrealized)) + kv("Equity", fmt2(st.equity) + " USDT") +
+    kv("Net paper deposits", fmt2(st.deposits) + " USDT") + kv("Total PnL", money(st.equity - st.deposits), cls(st.equity - st.deposits)) +
+    kv("Fees", `maker ${(st.maker_bps / 100).toFixed(3)}% · taker ${(st.taker_bps / 100).toFixed(3)}%`) + kv("Maintenance margin", (st.mmr * 100).toFixed(2) + "%");
+}
+async function pfPoll() {
+  if (document.hidden || OT.busy) return;
+  OT.busy = true;
+  try {
+    const r = await fetch("/api/paper/state", { cache: "no-store" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+    OT.st = d; OT.err = d.error || "";
+  } catch (e) { OT.err = e.message; }
+  finally { OT.busy = false; }
+  pfRender(); otEst(); otDefaults();
+}
+
+document.querySelectorAll(".ot-tabs button").forEach(b => b.addEventListener("click", () => { OT.type = b.dataset.ot; otSave(); otMode(); }));
+$("ot-ctype").addEventListener("change", otMode);
+$("ot-bbo").addEventListener("click", () => { OT.bbo = !OT.bbo; if (!OT.bbo) $("ot-price").value = (otLast() || 0).toFixed(MK.dp); otMode(); });
+$("ot-unit").addEventListener("change", e => { OT.unit = e.target.value; $("ot-size").value = ""; $("ot-pct").value = 0; $("ot-pct-l").textContent = "0%"; otSave(); otEst(); });
+for (const id of ["ot-price", "ot-stop", "ot-tp", "ot-sl"]) $(id).addEventListener("input", otEst);
+$("ot-size").addEventListener("input", () => {
+  const max = otMax(), usdt = otUsdt(otRef(true) || otLast());
+  const pct = max && usdt ? Math.min(100, Math.round(usdt / max * 100)) : 0;
+  $("ot-pct").value = pct; $("ot-pct-l").textContent = pct + "%"; otEst();
+});
+$("ot-pct").addEventListener("input", e => {
+  const pct = Number(e.target.value), usdt = otMax() * pct / 100, ref = otRef(true) || otLast();
+  $("ot-pct-l").textContent = pct + "%";
+  $("ot-size").value = !pct ? "" : OT.unit === "usdt" ? usdt.toFixed(2) : ref ? fmtQ(usdt / ref) : "";
+  otEst();
+});
+$("ot-ro").addEventListener("change", otEst);
+$("ot-slip-on").addEventListener("change", e => { $("ot-slip-box").hidden = !e.target.checked; });
+$("ot-tpsl-on").addEventListener("change", e => { $("ot-tpsl").hidden = !e.target.checked; });
+$("ot-buy").addEventListener("click", () => otSubmit("buy"));
+$("ot-sell").addEventListener("click", () => otSubmit("sell"));
+for (const id of ["bk-asks", "bk-bids"]) $(id).addEventListener("click", e => {   // click a book level: use its price
+  const row = e.target.closest("[data-px]");
+  if (!row || OT.type === "market") return;
+  OT.bbo = false; $("ot-price").value = Number(row.dataset.px).toFixed(MK.dp); otMode();
+});
+$("ot-transfer").addEventListener("click", async () => {
+  const v = prompt("Add paper USDT (e.g. 500) or take some out (e.g. -200). This is play money: nothing moves on Binance.", "500");
+  if (v == null) return;
+  const d = await pfPost("transfer", { amount: Number(v) });
+  if (d) otMsg(`Paper balance is now ${fmt2(d.result)} USDT.`);
+});
+function levNote() {
+  const v = Number($("ot-levn").value), busy = OT.st && (OT.st.positions.some(p => p.symbol === MK.sym) || OT.st.orders.some(o => o.symbol === MK.sym));
+  $("ot-lev-note").textContent = busy ? "Close the position and cancel the orders on this market first." :
+    v > 20 ? `High leverage: a ${(100 / v).toFixed(1)}% move against you wipes the margin.` : "";
+}
+$("ot-lev").addEventListener("click", () => {
+  const box = $("ot-levbox");
+  box.hidden = !box.hidden;
+  if (!box.hidden) { $("ot-levsym").textContent = MK.sym; $("ot-levn").value = $("ot-levr").value = otLev(); levNote(); }
+});
+$("ot-levr").addEventListener("input", e => { $("ot-levn").value = e.target.value; levNote(); });
+$("ot-levn").addEventListener("input", e => { $("ot-levr").value = e.target.value; levNote(); });
+$("ot-levcancel").addEventListener("click", () => { $("ot-levbox").hidden = true; });
+$("ot-levok").addEventListener("click", async () => {
+  const d = await pfPost("leverage", { symbol: MK.sym, leverage: Number($("ot-levn").value) }, [$("ot-levok")]);
+  if (d) { $("ot-levbox").hidden = true; otMsg(`Leverage for ${MK.sym} set to ${d.result}x.`); }
+});
+document.querySelectorAll(".mk-tab[data-pf]").forEach(b => b.addEventListener("click", () => { OT.pf = b.dataset.pf; otSave(); pfRender(); }));
+$("pf-pos").addEventListener("click", async e => {
+  const sym = e.target.dataset && e.target.dataset.close;
+  if (!sym || !confirm(`Close the paper ${sym} position at market?`)) return;
+  const d = await pfPost("close", { symbol: sym }, [e.target]);
+  if (d) { const [text, bad] = otDescribe(d.result); otMsg(text, bad); }
+});
+$("pf-orders").addEventListener("click", async e => {
+  const id = e.target.dataset && e.target.dataset.cancel;
+  if (id && await pfPost("cancel", { id: Number(id) }, [e.target])) otMsg("Paper order canceled.");
+});
+$("mk-sym").addEventListener("change", () => { $("ot-levbox").hidden = true; otEst(); });
+otMode(); pfRender();
+setInterval(pfPoll, 2000);
+pfPoll();
 mkTick();
 
 function connect() {
