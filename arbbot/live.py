@@ -185,7 +185,48 @@ class LiveExecutor:
         executed = float(o.get("executedQty") or 0)
         if executed <= 0:
             raise RuntimeError(f"futures {side} {symbol} not filled (status={o.get('status')})")
-        return {"avg": float(o["avgPrice"]), "qty": executed, "quote": float(o["avgPrice"]) * executed, "fills": []}
+        # From here the order HAS filled: never raise a plain error (the caller would think nothing happened).
+        avg = await self._fut_avg(symbol, o, executed)
+        return {"avg": avg, "qty": executed, "quote": avg * executed, "fills": []}
+
+    async def _fut_avg(self, symbol: str, o: dict, executed: float) -> float:
+        """Average fill price of a FILLED futures order. Replies do not always carry avgPrice (testnet omitted it), so:
+        avgPrice, then cumQuote / executedQty, then the order re-read, then the account's fills, then the mark price."""
+        def from_order(x: dict) -> float:
+            avg = float(x.get("avgPrice") or 0)
+            if avg > 0:
+                return avg
+            quote = float(x.get("cumQuote") or 0)
+            return quote / executed if quote > 0 else 0.0
+
+        if (avg := from_order(o)) > 0:
+            return avg
+        try:
+            if (avg := from_order(await self.c.get("fapi", "/fapi/v1/order", {"symbol": symbol, "orderId": o["orderId"]},
+                                                   signed=True))) > 0:
+                return avg
+            fills = await self.c.get("fapi", "/fapi/v1/userTrades", {"symbol": symbol, "orderId": o["orderId"]}, signed=True)
+            qty = sum(float(f["qty"]) for f in fills)
+            if qty > 0:
+                return sum(float(f["price"]) * float(f["qty"]) for f in fills) / qty
+            mark = float((await self.c.get("fapi", "/fapi/v1/premiumIndex", {"symbol": symbol}))["markPrice"])
+            log.error("%s order %s filled %g but no fill price was reported; using the mark price %g", symbol,
+                      o.get("orderId"), executed, mark)
+            return mark
+        except Exception as e:
+            raise UnhedgedError(f"{symbol}: futures order {o.get('orderId')} FILLED {executed:g} but its price could not "
+                                f"be read ({type(e).__name__}: {e}); check the position on the exchange") from e
+
+    async def _fut_position(self, symbol: str) -> tuple[float, float]:
+        """(signed position amount, entry price) the exchange reports for this futures symbol (one-way mode)."""
+        try:
+            rows = await self.c.get("fapi", "/fapi/v3/positionRisk", {"symbol": symbol}, signed=True)
+        except BinanceError as e:
+            if e.status != 404:
+                raise
+            rows = await self.c.get("fapi", "/fapi/v2/positionRisk", {"symbol": symbol}, signed=True)
+        row = next((r for r in rows if r.get("symbol") == symbol), None)
+        return (float(row["positionAmt"]), float(row["entryPrice"])) if row else (0.0, 0.0)
 
     async def _spot_market(self, symbol: str, side: str, qty: Decimal) -> dict:
         o = await self.c.post(
@@ -256,6 +297,19 @@ class LiveExecutor:
             self._spot_market(m.spot_symbol, "BUY", sq),
             return_exceptions=True,
         )
+        if isinstance(fr, UnhedgedError):          # filled but unpriced: the operator must look, nothing is guessed
+            raise fr
+        if isinstance(fr, Exception):              # an error is not proof that nothing filled: ask the exchange
+            try:
+                amt, entry = await self._fut_position(m.symbol)
+            except Exception as e:
+                raise UnhedgedError(f"{m.symbol}: futures sell reported an error ({fr}) and the position could not be "
+                                    f"checked ({e}); spot {'was bought' if not isinstance(sr, Exception) else 'failed'}. "
+                                    f"Check the exchange.") from e
+            if amt < 0:                            # the short IS open (the bot never enters a symbol it already holds)
+                log.error("%s futures sell reported an error (%s) but the exchange shows a %g short @ %g; continuing "
+                          "as filled", m.symbol, fr, amt, entry)
+                fr = {"avg": entry, "qty": abs(amt), "quote": entry * abs(amt), "fills": []}
         if isinstance(fr, Exception) and isinstance(sr, Exception):
             raise RuntimeError(f"both legs failed on entry: futures={fr}; spot={sr}")
         if isinstance(sr, Exception):  # futures short filled (maybe partly), spot did not -> buy the short back
