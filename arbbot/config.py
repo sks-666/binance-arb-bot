@@ -72,6 +72,7 @@ class RiskCfg:
     daily_loss_limit_usd: float = 25.0
     max_consecutive_errors: int = 3
     kill_file: str = "KILL"
+    start_paused: bool = True           # every start begins with entries paused; Resume / /resume to trade
 
 
 @dataclass

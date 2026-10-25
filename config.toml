@@ -58,6 +58,7 @@ symbol_cooldown_s = 120.0
 daily_loss_limit_usd = 25.0       # halts entries and flattens (UTC day)
 max_consecutive_errors = 3
 kill_file = "KILL"                # `touch KILL` halts + flattens instantly; remove to re-arm
+start_paused = true               # every start begins with entries PAUSED; press Resume or send /resume to trade
 
 [execution]
 mode = "paper"                    # "paper" | "live"  (live also needs --live and API keys)

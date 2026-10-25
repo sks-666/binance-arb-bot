@@ -88,6 +88,14 @@ async def telegram_utility(args: argparse.Namespace, cfg, token: str, chat_id: s
         print("Test alert sent. Check Telegram.")
 
 
+def initial_pause(saved: str | None, start_paused: bool) -> str:
+    """Why entries begin paused at startup: "saved" (you paused before the restart), "default"
+    (risk.start_paused = true), or "" (they begin active)."""
+    if saved == "1":
+        return "saved"
+    return "default" if start_paused else ""
+
+
 def load_dotenv(path: Path) -> None:
     if not path.exists():
         return
@@ -163,8 +171,9 @@ async def amain(args: argparse.Namespace) -> None:
     store = Store(db_path)
     portfolio = Portfolio(store, now)
     risk = Risk(cfg.risk, portfolio)
-    paused_before = store.get_setting("manual_halt") == "1"   # a pause set before the restart still holds
-    risk.manual_halt = paused_before
+    why_paused = initial_pause(store.get_setting("manual_halt"), cfg.risk.start_paused)
+    paused_before, start_paused = why_paused == "saved", why_paused == "default"
+    risk.manual_halt = bool(why_paused)
     scanner = Scanner(cfg.strategy, cfg.fees, cfg.feed.max_quote_age_s)
     board = Board(cfg.feed.mode)
 
@@ -294,6 +303,12 @@ async def amain(args: argparse.Namespace) -> None:
             engine.event("warn", "entries still paused from before the restart (Resume or /resume to continue)")
             alerts.send("⛔ Started with entries PAUSED, as you left them before the restart. "
                         "Open positions are still managed. Send /resume or press Resume to trade again.")
+        elif start_paused:
+            log.warning("entries are PAUSED at start (risk.start_paused = true in config.toml); resume from the "
+                        "dashboard or /resume")
+            engine.event("warn", "started paused (start_paused = true); Resume or /resume to trade")
+            alerts.send("⛔ Started with entries PAUSED (that is the default: start_paused = true in config.toml). "
+                        "Open positions are still managed. Send /resume or press Resume to trade.")
 
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()

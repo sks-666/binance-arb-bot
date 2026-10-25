@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 
 from arbbot.commands import CommandHandler
+from arbbot.config import RiskCfg, load
+from arbbot.main import initial_pause
 from arbbot.engine import Engine
 from arbbot.executor import PaperExecutor
 from arbbot.feeds import Board
@@ -19,12 +21,12 @@ class PausePersistTests(unittest.TestCase):
         self.path = self.dir / "state.db"
         self.cfg = small_cfg(str(self.dir))
 
-    def boot(self):
-        """What main.py does at startup: open the store, build the risk and restore a saved pause."""
+    def boot(self, start_paused=False):
+        """What main.py does at startup: open the store, build the risk and decide whether entries begin paused."""
         store = Store(self.path)
         pf = Portfolio(store, 1000.0)
         risk = Risk(self.cfg.risk, pf)
-        risk.manual_halt = store.get_setting("manual_halt") == "1"
+        risk.manual_halt = bool(initial_pause(store.get_setting("manual_halt"), start_paused))
         eng = Engine(self.cfg, Board("sim"), Scanner(self.cfg.strategy, self.cfg.fees, self.cfg.feed.max_quote_age_s),
                      pf, risk, PaperExecutor(self.cfg.fees))
         return eng, store
@@ -60,6 +62,20 @@ class PausePersistTests(unittest.TestCase):
         self.assertEqual(store.get_setting("manual_halt"), "1")
         self.assertIn("resumed", h.answer("/resume").lower())
         self.assertEqual(store.get_setting("manual_halt"), "0")
+
+    def test_the_default_is_to_start_paused(self):
+        self.assertTrue(RiskCfg().start_paused)                    # out of the box
+        self.assertTrue(load(Path(__file__).resolve().parent.parent / "config.toml").risk.start_paused)
+        self.assertEqual(initial_pause(None, True), "default")
+        self.assertEqual(initial_pause("0", True), "default")       # even after you resumed: each start is paused
+        self.assertEqual(initial_pause("1", True), "saved")         # your own pause is named as such
+        self.assertEqual(initial_pause("1", False), "saved")        # and holds even with the default off
+        self.assertEqual(initial_pause("0", False), "")
+        self.assertEqual(initial_pause(None, False), "")
+        eng, _ = self.boot(start_paused=True)
+        self.assertTrue(eng.risk.manual_halt)
+        eng.request_resume()                                       # resuming works as usual
+        self.assertFalse(eng.risk.halted)
 
     def test_an_engine_without_a_store_still_pauses(self):
         eng, _ = self.boot()
