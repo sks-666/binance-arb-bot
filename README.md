@@ -118,7 +118,8 @@ The simulator is never recorded. A recording failure disables recording only; it
 A separate toolkit for the timescale where retail traders can compete: candles of hours to days, positions held days to
 weeks, so fees and latency matter far less than they do for arbitrage. It follows the three rules that matter most:
 **backtest first, risk only 1-2% per trade, keep a journal.** It is research and paper only: nothing here places an order,
-and it shares no state with the arbitrage bot.
+and it shares no state with the arbitrage bot. (The one exception is opt-in and testnet-only: `--swing-mirror` copies one
+account's new trades to the futures testnet; see the order ticket section.)
 
 ```bash
 .venv/bin/python swing.py download --days 730            # cache 4h candles + real funding history (BTC ETH SOL BNB XRP)
@@ -239,6 +240,16 @@ live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 e
   check ignores the ticket's coins, saved in `data/ticket-live-testnet-real.json`). The bot logs the testnet request
   weight every 30 s with the busiest endpoints: the testnet bans an IP that keeps exceeding 2,400 a minute, and the IP
   Binance sees may be shared with other traffic.
+* **Swing account mirrored to the TESTNET.** Add `--swing --swing-mirror trend` to the testnet command (or `swing` /
+  `smc`; `--swing-mirror-fund 10000` sets the size, default $10,000) and every **new** entry of that paper account is
+  copied to the futures testnet through the ticket (`arbbot/swing_mirror.py`): a market order sized as if the account
+  held that fund, with its stop as a real exchange-side stop-market; when the paper stop trails, the exchange stop is
+  moved (only for moves of 0.1% or more); when the paper position exits, the testnet one is closed. If the exchange stop
+  fires first, that is recorded and the trade is not re-entered. The paper account stays the source of truth: its
+  signals still come from mainnet candles, and the testnet bot keeps its own journal (`data/swing-journal-testnet.db`).
+  Skipped, and noted once: positions the account held before mirroring started, coins the arbitrage bot holds or that
+  already have a testnet position, and orders the testnet refuses (below its minimum size, the stop already through the
+  price). It only runs with `--live --testnet`. State: `data/swing-mirror-testnet.json`.
 * **Run only one of the two at a time.** Both write the same journal; they would agree, but you would get every alert twice.
 * **It is paper only and separate from the arbitrage book.** If the candle download fails the runner logs it and retries
   (30 s, doubling to 15 min); it can never stop the arbitrage bot that shares the process.

@@ -183,6 +183,13 @@ class TicketTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):                  # TP/SL on a not-yet-triggered stop: refused on testnet
             await self.order(side="buy", type="stop_market", stop_price=81000, size_usdt=200, tp=85000)
 
+    async def test_a_trailing_stop_replaces_only_the_stop_loss(self):
+        await self.order(side="buy", type="market", size_usdt=200, tp=84000, sl=78000)
+        await self.t.replace_stop("BTCUSDT", "buy", 79000)
+        self.assertEqual(sorted((a["orderType"], a["triggerPrice"]) for a in self.ex.algo),
+                         [("STOP_MARKET", "79000"), ("TAKE_PROFIT_MARKET", "84000")])
+        self.assertEqual(self.t.position("BTCUSDT"), 0.002)
+
     async def test_tp_sl_are_tidied_when_the_position_closes(self):
         await self.order(side="buy", type="market", size_usdt=200, tp=84000, sl=78000)
         self.assertEqual(len(self.ex.algo), 2)

@@ -126,6 +126,11 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="container-host mode (paper only): serve a READ-ONLY dashboard behind a login (DASHBOARD_PASSWORD) "
                         "plus /healthz on 0.0.0.0:$PORT instead of the local dashboard; the recorder stays off unless "
                         "ARBBOT_RECORD=1")
+    p.add_argument("--swing-mirror", choices=["trend", "swing", "smc"],
+                   help="TESTNET only (with --swing --live --testnet): copy this swing account's new trades onto the "
+                        "futures testnet as real testnet orders with exchange-side stops")
+    p.add_argument("--swing-mirror-fund", type=float, default=10_000.0,
+                   help="size the testnet copies as if the mirrored account held this many dollars (default 10000)")
     p.add_argument("--swing", action="store_true",
                    help="also paper-trade the swingkit strategies (trend, swing, SMC) in this process: alerts plus the "
                         "/setups /journal /swing Telegram commands. Paper only; separate from the arbitrage book")
@@ -237,6 +242,8 @@ async def amain(args: argparse.Namespace) -> None:
     cfg.risk.kill_file = str(ROOT / cfg.risk.kill_file) if not os.path.isabs(cfg.risk.kill_file) else cfg.risk.kill_file
     cfg.validate()
 
+    if args.swing_mirror and not (args.swing and live and cfg.execution.env == "testnet"):
+        sys.exit("--swing-mirror copies swing trades to the TESTNET only: it needs --swing --live --testnet")
     if args.check:   # read-only: never builds the engine, never sends an order
         sys.exit(await run_check(cfg, live_keys(cfg.execution.env)))
     setup_logging()
@@ -335,7 +342,7 @@ async def amain(args: argparse.Namespace) -> None:
                         depth=depth, recorder=recorder)
         sampler = DepthSampler(recorder, depth, board, cfg.recorder.depth_every_s) if (recorder and depth) else None
         handler = CommandHandler(engine, label)
-        swing = None
+        swing, mirror = None, None
         if args.swing:  # optional second paper account family; imported lazily so the arbitrage bot never needs it
             try:
                 from swingkit.journal import Journal
@@ -344,10 +351,19 @@ async def amain(args: argparse.Namespace) -> None:
                 if spec.strip().lower() == "arb" and cfg.feed.mode == "sim":
                     spec = ",".join(DEFAULT_SYMBOLS)    # the simulated feed's markets do not exist on Binance
                     log.warning("swing: the simulated feed has no real markets; paper-trading %s instead", spec)
+                # swing signals always come from real (mainnet) candles: on testnet a key-less public mainnet client
+                swing_client = client if cfg.execution.env == "mainnet" else BinanceClient(
+                    session, "mainnet", timeout_s=cfg.feed.request_timeout_s)
+                if cfg.execution.env != "mainnet" and args.swing_journal_db == "data/swing-journal.db":
+                    args.swing_journal_db = "data/swing-journal-testnet.db"   # never mix with the paper bot's journal
                 # "arb" = the very markets the arbitrage bot scans (same universe, same volume ranking)
-                symbols, auto = await resolve_spec(spec, client, list(board.markets))
-                swing = SwingRunner(paper_cfg_from(args, "swing-", symbols, auto), client,
+                symbols, auto = await resolve_spec(spec, swing_client, list(board.markets))
+                swing = SwingRunner(paper_cfg_from(args, "swing-", symbols, auto), swing_client,
                                     Journal(ROOT / args.swing_journal_db), notify=alerts.send)
+                if args.swing_mirror:
+                    from .swing_mirror import SwingMirror
+                    mirror = SwingMirror(swing, ticket, args.swing_mirror, args.swing_mirror_fund,
+                                         ROOT / "data" / "swing-mirror-testnet.json", notify=alerts.send)
             except ImportError:
                 sys.exit("--swing needs the swingkit/ folder next to arbbot/.")
             except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as e:
@@ -422,6 +438,10 @@ async def amain(args: argparse.Namespace) -> None:
             coros.append(sampler.run())
         if swing is not None:
             coros.append(swing.run())
+        if mirror is not None:
+            coros.append(mirror.run())
+            log.info("swing mirror: copying the %s account's new trades to the futures TESTNET (sized for $%.0f)",
+                     mirror.strategy, mirror.fund)
             log.info("swing toolkit: paper accounts %s on %s candles for %d markets (journal %s); /setups /journal /swing",
                      "+".join(swing.cfg.strategies), swing.cfg.interval, len(swing.symbols), args.swing_journal_db)
         tasks = [asyncio.create_task(c) for c in coros]

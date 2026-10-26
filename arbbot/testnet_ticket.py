@@ -306,6 +306,23 @@ class TestnetTicket:
         await self._safe_refresh()
         return out
 
+    def position(self, symbol: str) -> float:
+        """Signed position amount on this coin as of the last refresh (0 when flat)."""
+        return next((float(p["positionAmt"]) for p in self.risk if p["symbol"] == symbol), 0.0)
+
+    async def replace_stop(self, symbol: str, side: str, stop: float) -> None:
+        """Move the exchange-side stop of the `side` ("buy" = long) position on `symbol`: cancel its closePosition
+        stop-market and place a new one at `stop` (the swing mirror trails stops this way)."""
+        sym = self._check_symbol(symbol)
+        async with self._lock:
+            await self._ensure_filters()
+            for o in list(self.open_orders):
+                if (o["symbol"] == sym and "_algo" in o and str(o.get("type", "")).startswith("STOP")
+                        and o.get("closePosition") in (True, "true")):
+                    await self.c.request("fapi", "DELETE", "/fapi/v1/algoOrder", {"algoId": o["_algo"]}, signed=True)
+            await self._place_tpsl(sym, side, None, stop, "trailing stop")
+        await self._safe_refresh()
+
     async def close_position(self, symbol: str) -> dict:
         sym = self._check_symbol(symbol)
         await self._safe_refresh()
