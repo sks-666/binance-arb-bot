@@ -20,6 +20,11 @@ class BinanceError(Exception):
         self.status, self.code, self.msg, self.path = status, code, msg, path
 
 
+class NotSentError(BinanceError):
+    """The request was held back by the local rate-limit backoff and never left this machine: for an order, a certain
+    non-fill (unlike a timeout or an error reply, which leave the outcome unknown)."""
+
+
 class BinanceClient:
     def __init__(
         self, session: aiohttp.ClientSession, env: str = "mainnet", api_key: str = "", api_secret: str = "",
@@ -41,7 +46,7 @@ class BinanceClient:
     async def request(self, venue: str, method: str, path: str, params: dict | None = None, signed: bool = False,
                       timeout: float | None = None):
         if time.time() < self.backoff_until:
-            raise BinanceError(429, None, "local rate-limit backoff active", path)
+            raise NotSentError(429, None, "local rate-limit backoff active", path)
         params = {k: v for k, v in (params or {}).items() if v is not None}
         headers = {}
         api_key, api_secret = self.venue_keys.get(venue, (self.api_key, self.api_secret))
@@ -77,6 +82,10 @@ class BinanceClient:
                 msg = data.get("msg") if isinstance(data, dict) else body[:200]
                 raise BinanceError(resp.status, code, str(msg), path)
             return data
+
+    def paused_for(self) -> float:
+        """Seconds left in the rate-limit backoff (Binance's 429 / 418 Retry-After); 0 when requests can be sent."""
+        return max(0.0, self.backoff_until - time.time())
 
     async def get(self, venue: str, path: str, params: dict | None = None, signed: bool = False,
                   timeout: float | None = None):

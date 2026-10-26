@@ -113,9 +113,17 @@ class Engine:
         if self.recorder is not None:
             self.recorder.tick(now, self.board.markets)
         self._accrue_funding(now)
-        await self._exits(now)
-        if self.trading and not self.risk.halted:
-            await self._entries(now)
+        # During Binance's rate-limit backoff no order can leave this machine: attempting exits or entries would only
+        # fail (and trip the fault breaker). Wait instead; positions stay as they are and exits run once requests flow.
+        block = self.executor.entry_block() if hasattr(self.executor, "entry_block") else ""
+        if block:
+            if now - getattr(self, "_block_said", 0.0) > 60:
+                self._block_said = now
+                self.event("warn", f"waiting: {block}; no entries or exits until it lifts")
+        else:
+            await self._exits(now)
+            if self.trading and not self.risk.halted:
+                await self._entries(now)
         self.tick_ms = (time.monotonic() - t0) * 1000
 
     # ---- alerts --------------------------------------------------------------------------------

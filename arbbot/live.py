@@ -20,7 +20,7 @@ import asyncio
 import logging
 from decimal import ROUND_DOWN, Decimal
 
-from .binance_client import BinanceClient, BinanceError
+from .binance_client import BinanceClient, BinanceError, NotSentError
 from .config import Config
 from .executor import UnhedgedError
 from .models import ClosedTrade, Market, Position, Signal
@@ -91,6 +91,12 @@ class LiveExecutor:
         self.cfg = cfg
         self.fees = cfg.fees
         self._margin_ready: set[str] = set()
+
+    def entry_block(self) -> str:
+        """Why no order can be sent right now ("" when they can): during Binance's rate-limit backoff every request would
+        be held back, so the engine waits instead of attempting entries or exits that cannot leave this machine."""
+        left = self.c.paused_for() if hasattr(self.c, "paused_for") else 0.0
+        return f"Binance rate limit: requests paused for {left:.0f}s more" if left > 0 else ""
 
     async def preflight(self) -> dict:
         """Verify account mode and balances before any order can be sent. Raises on anything unsafe."""
@@ -300,7 +306,9 @@ class LiveExecutor:
         )
         if isinstance(fr, UnhedgedError):          # filled but unpriced: the operator must look, nothing is guessed
             raise fr
-        if isinstance(fr, Exception):              # an error is not proof that nothing filled: ask the exchange
+        if isinstance(fr, NotSentError):           # held back by the rate-limit backoff: it never left, so no fill
+            pass
+        elif isinstance(fr, Exception):            # an error is not proof that nothing filled: ask the exchange
             try:
                 amt, entry = await self._fut_position(m.symbol)
             except Exception as e:

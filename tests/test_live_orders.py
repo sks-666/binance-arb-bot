@@ -140,5 +140,64 @@ class LostReplyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ex.spot_sells(), [])                           # nothing done blindly
 
 
+class RateLimitTests(unittest.IsolatedAsyncioTestCase):
+    """The BEAMXUSDT fault on testnet: every request was held back by the local backoff, nothing left the machine, yet
+    the bot raised the unhedged alarm because it could not tell "never sent" from "sent, outcome unknown"."""
+
+    async def test_both_legs_held_back_is_a_plain_failure_not_an_alarm(self):
+        from arbbot.binance_client import NotSentError
+        ex = FakeExchange(post_error=NotSentError(429, None, "local rate-limit backoff active", "/fapi/v1/order"),
+                          fill_before_error=False, position_error=NotSentError(429, None, "backoff", "/fapi/v3/positionRisk"))
+
+        async def spot_held_back(venue, path, params=None, signed=True):
+            if path == "/api/v3/order":
+                raise NotSentError(429, None, "local rate-limit backoff active", path)
+            return await FakeExchange.post(ex, venue, path, params, signed)
+        ex.post = spot_held_back
+        with self.assertRaises(RuntimeError) as cm:
+            await open_with(ex)
+        self.assertNotIsInstance(cm.exception, UnhedgedError)          # no fault: nothing can have filled
+        self.assertIn("both legs failed", str(cm.exception))
+        self.assertFalse(any("positionRisk" in p for _, p, _ in ex.calls))   # and no pointless exchange check
+
+    async def test_futures_held_back_and_spot_filled_unwinds_the_spot_without_an_alarm(self):
+        from arbbot.binance_client import NotSentError
+        ex = FakeExchange(post_error=NotSentError(429, None, "local rate-limit backoff active", "/fapi/v1/order"),
+                          fill_before_error=False)
+        with self.assertRaises(RuntimeError) as cm:
+            await open_with(ex)
+        self.assertNotIsInstance(cm.exception, UnhedgedError)
+        self.assertEqual(len(ex.spot_sells()), 1)                       # the spot leg was sold back
+        self.assertEqual(ex.fut_position, 0.0)
+
+    def test_entry_block_reports_the_backoff(self):
+        class C:
+            def __init__(self, left):
+                self.left = left
+
+            def paused_for(self):
+                return self.left
+        self.assertEqual(LiveExecutor(C(0.0), Config()).entry_block(), "")
+        self.assertIn("paused for 42s", LiveExecutor(C(42.0), Config()).entry_block())
+
+    async def test_the_engine_waits_out_a_backoff_instead_of_trading(self):
+        from tests.test_model import engine, warm
+        eng, m, pf, cfg = engine()
+        await warm(eng, m)
+        calls = []
+
+        async def no(*a, **k):
+            calls.append(a)
+            raise AssertionError("no order may be attempted during a backoff")
+        eng.executor.open = eng.executor.close = no
+        eng.executor.entry_block = lambda: "Binance rate limit: requests paused for 300s more"
+        await eng.tick(now=5000.0)
+        await eng.tick(now=5001.0)
+        self.assertEqual(calls, [])
+        self.assertFalse(eng.risk.halted)                              # no fault from waiting
+        waits = [e for e in eng.events if "waiting: Binance rate limit" in e["msg"]]
+        self.assertEqual(len(waits), 1)                                # said once, not every tick
+
+
 if __name__ == "__main__":
     unittest.main()
