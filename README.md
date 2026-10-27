@@ -236,12 +236,20 @@ live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 e
   orders use the normal order endpoint; conditional orders and TP/SL use Binance's **Algo Order API**
   (`/fapi/v1/algoOrder`, which the normal endpoint now requires: code -4120), and TP/SL are placed as closePosition
   orders once the entry fills, then removed automatically when the position closes. TP/SL cannot be attached to a
-  conditional order that has not triggered yet. The ticket refuses any non-testnet connection, so it can never trade
-  mainnet; on paper and mainnet bots it stays the paper account. It shares the testnet account with the arbitrage bot,
+  conditional order that has not triggered yet. The ticket refuses a mainnet connection unless you opt in with
+  `--real-ticket` (below); otherwise, on paper and mainnet bots, it stays the paper account. It shares the account with the arbitrage bot,
   so the two never touch the same coin (the ticket refuses the bot's coins, the bot skips the ticket's, and the startup
   check ignores the ticket's coins, saved in `data/ticket-live-testnet-real.json`). The bot logs the testnet request
   weight every 30 s with the busiest endpoints: the testnet bans an IP that keeps exceeding 2,400 a minute, and the IP
   Binance sees may be shared with other traffic.
+* **REAL-MONEY order ticket on MAINNET (opt-in).** `run.py --live --config config.toml --real-ticket` (what
+  `Start Binance Bots.command` runs for mainnet) makes the mainnet dashboard's ticket send **real orders to your Binance
+  USD-M futures account**, with the same behaviour as the testnet ticket. Guards: the badge turns red (REAL MONEY);
+  every order and every Market close asks you to confirm; one order is worth at most `--real-ticket-max-usd` USDT
+  (default 100; the launcher's `REAL_TICKET_MAX_USD`), closing is never capped; new orders are refused while the
+  `KILL` file exists (closing still works); new coins get `execution.leverage` (2x) isolated margin until you change
+  it; transfers are refused (move USDT in the Binance app). Pausing the arbitrage bot does **not** pause the ticket.
+  `--real-ticket` is refused on paper and testnet bots. State: `data/ticket-live-mainnet-real.json`.
 * **Swing account mirrored to the TESTNET.** Add `--swing --swing-mirror trend` to the testnet command (or `swing` /
   `smc`; `--swing-mirror-fund 10000` sets the size, default $10,000) and every **new** entry of that paper account is
   copied to the futures testnet through the ticket (`arbbot/swing_mirror.py`): a market order sized as if the account

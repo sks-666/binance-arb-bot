@@ -128,6 +128,11 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="container-host mode (paper only): serve a READ-ONLY dashboard behind a login (DASHBOARD_PASSWORD) "
                         "plus /healthz on 0.0.0.0:$PORT instead of the local dashboard; the recorder stays off unless "
                         "ARBBOT_RECORD=1")
+    p.add_argument("--real-ticket", action="store_true",
+                   help="MAINNET only (with --live): the dashboard's order ticket sends REAL-MONEY orders to your Binance "
+                        "futures account instead of a paper account (capped by --real-ticket-max-usd)")
+    p.add_argument("--real-ticket-max-usd", type=float, default=100.0,
+                   help="largest value in USDT of one real-money ticket order (default 100); closing is never capped")
     p.add_argument("--swing-mirror", choices=["trend", "swing", "smc"],
                    help="TESTNET only (with --swing --live --testnet): copy this swing account's new trades onto the "
                         "futures testnet as real testnet orders with exchange-side stops")
@@ -246,6 +251,11 @@ async def amain(args: argparse.Namespace) -> None:
     cfg.risk.kill_file = str(ROOT / cfg.risk.kill_file) if not os.path.isabs(cfg.risk.kill_file) else cfg.risk.kill_file
     cfg.validate()
 
+    if args.real_ticket and not (live and cfg.execution.env == "mainnet"):
+        sys.exit("--real-ticket sends real-money orders from the dashboard: it needs --live on mainnet (the testnet "
+                 "bot's ticket already trades the testnet)")
+    if args.real_ticket and not args.real_ticket_max_usd > 0:
+        sys.exit("--real-ticket-max-usd must be above 0")
     if args.swing_mirror and not (args.swing and live and cfg.execution.env == "testnet"):
         sys.exit("--swing-mirror copies swing trades to the TESTNET only: it needs --swing --live --testnet")
     if args.check:   # read-only: never builds the engine, never sends an order
@@ -314,13 +324,21 @@ async def amain(args: argparse.Namespace) -> None:
 
         label = "SIM" if cfg.feed.mode == "sim" else f"{mode.upper()} {cfg.execution.env}"
         alerts = Notifier(cfg.alerts, token, chat_id, label, session)
-        # The dashboard's order ticket: REAL testnet orders under --live --testnet (it refuses any non-testnet client),
-        # a paper futures account everywhere else. It is never connected to mainnet.
-        if live and cfg.execution.env == "testnet":
+        # The dashboard's order ticket: REAL testnet orders under --live --testnet, REAL-MONEY mainnet orders only under
+        # --live --real-ticket (capped per order, blocked by the KILL file), a paper futures account everywhere else.
+        if live and (cfg.execution.env == "testnet" or args.real_ticket):
+            kill = cfg.risk.kill_file
             ticket = TestnetTicket(client, ROOT / "data" / f"ticket-{db_path.stem}.json",
                                    arb_symbols=lambda: set(portfolio.open), notify=alerts.send,
-                                   taker_bps=cfg.fees.futures_taker_bps)
+                                   taker_bps=cfg.fees.futures_taker_bps, real_money=args.real_ticket,
+                                   max_order_usd=args.real_ticket_max_usd if args.real_ticket else None,
+                                   default_leverage=cfg.execution.leverage if args.real_ticket else 15,
+                                   blocked=lambda: f"the kill file {kill} is present" if os.path.exists(kill) else "")
             risk.external = ticket.owned              # the arbitrage bot stays off the ticket's coins
+            if args.real_ticket:
+                log.warning("REAL-MONEY order ticket ON: dashboard orders go to your Binance futures account (max %g "
+                            "USDT per order, default leverage %dx). Pausing the arbitrage bot does not pause the ticket.",
+                            args.real_ticket_max_usd, cfg.execution.leverage)
         else:
             # one paper futures account per bot state, so two bots (e.g. paper + testnet) never write the same file
             pf_name = "paper-futures.json" if db_path.stem == "paper-mainnet-real" else f"paper-futures-{db_path.stem}.json"

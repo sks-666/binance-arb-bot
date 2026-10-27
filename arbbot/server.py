@@ -12,6 +12,7 @@ from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
+from .binance_client import BinanceError
 from .config import Config
 from .engine import Engine
 
@@ -81,7 +82,8 @@ class Dashboard:
         return web.json_response(self.paper.view(), headers={"Cache-Control": "no-store"})
 
     async def paper_action(self, request: web.Request) -> web.Response:
-        """The order ticket: PAPER orders only (arbbot/paper_futures.py). Nothing here reaches the live executor."""
+        """The order ticket: a paper account (arbbot/paper_futures.py), or a real Binance futures account
+        (arbbot/testnet_ticket.py: the testnet, or mainnet only under --live --real-ticket). Never the arbitrage executor."""
         if not hmac.compare_digest(request.headers.get("X-Token", ""), self.token):
             raise web.HTTPForbidden(text="bad token")
         if self.paper is None:
@@ -108,6 +110,9 @@ class Dashboard:
             return web.json_response({"ok": False, "error": str(e)}, status=400)
         except web.HTTPException:
             raise
+        except BinanceError as e:                                           # Binance itself refused (e.g. not enough margin)
+            log.warning("ticket %s refused by Binance: %s", op, e)
+            return web.json_response({"ok": False, "error": f"Binance refused it: {e.msg} (code {e.code})"}, status=400)
         except Exception as e:                                              # Binance unreachable for the price
             log.warning("paper %s failed: %s: %s", op, type(e).__name__, e)
             return web.json_response({"ok": False, "error": f"could not get a price from Binance ({type(e).__name__})"},

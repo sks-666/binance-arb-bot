@@ -939,16 +939,20 @@ function otDefaults() {   // fill the price with the last price whenever the cha
     $("ot-tp").value = ""; $("ot-sl").value = ""; $("ot-msg").textContent = "";
   }
 }
-// "paper" (simulated account) or "testnet" (real orders on the Binance futures testnet, test money)
-const VN = () => (OT.st && OT.st.venue === "testnet") ? "testnet" : "paper";
-const VNC = () => VN() === "testnet" ? "Testnet" : "Paper";
+// "paper" (simulated account), "testnet" (real orders on the Binance futures testnet, test money) or "mainnet"
+// (REAL-MONEY orders on your Binance futures account: only when the bot runs with --live --real-ticket)
+const VN = () => (OT.st && ["testnet", "mainnet"].includes(OT.st.venue)) ? OT.st.venue : "paper";
+const VNC = () => ({ testnet: "Testnet", mainnet: "REAL-MONEY" })[VN()] || "Paper";
+const REAL = () => VN() === "mainnet";
 function otVenue() {
-  const t = VN() === "testnet", b = $("ot-venue");
-  b.textContent = t ? "TESTNET" : "PAPER";
-  b.title = t ? "Orders are sent to the Binance FUTURES TESTNET: real testnet orders, test money only."
-              : "Orders fill against live Binance prices in a paper account. Nothing is ever sent to Binance.";
-  $("ot-transfer").hidden = t;
-  $("pf-venue").textContent = t ? "Binance futures TESTNET account" : "paper futures account";
+  const v = VN(), b = $("ot-venue");
+  b.textContent = { testnet: "TESTNET", mainnet: "REAL MONEY" }[v] || "PAPER";
+  b.className = "badge " + (v === "mainnet" ? "live" : "paper");
+  b.title = v === "mainnet" ? `Orders are sent to your Binance FUTURES account on MAINNET: REAL money. At most ${OT.st.max_order_usd} USDT per order; each one asks you to confirm.`
+    : v === "testnet" ? "Orders are sent to the Binance FUTURES TESTNET: real testnet orders, test money only."
+    : "Orders fill against live Binance prices in a paper account. Nothing is ever sent to Binance.";
+  $("ot-transfer").hidden = v !== "paper";
+  $("pf-venue").textContent = { testnet: "Binance futures TESTNET account", mainnet: "Binance futures MAINNET account · REAL MONEY" }[v] || "paper futures account";
 }
 function otEst() {
   otVenue();
@@ -1003,6 +1007,13 @@ async function otSubmit(side) {
   if ($("ot-tpsl-on").checked) {
     req.tp = numIn("ot-tp"); req.sl = numIn("ot-sl");
     if (!req.tp && !req.sl) return otMsg("Enter a take-profit and/or stop-loss price, or untick TP/SL.", true);
+  }
+  if (REAL()) {
+    const size = req.size_usdt != null ? `${req.size_usdt} USDT` : `${req.qty} ${coin()}`;
+    const px = req.bbo ? " at the best price" : req.price ? ` @ ${req.price}` : "";
+    const what = `${side === "buy" ? "BUY / LONG" : "SELL / SHORT"} ${size} of ${MK.sym}, ${req.type.replace("_", " ")}${px}` +
+      `${req.stop_price ? `, stop ${req.stop_price}` : ""}, ${otLev()}x${req.reduce_only ? ", reduce-only" : ""}`;
+    if (!confirm(`REAL MONEY order on your Binance account:\n\n${what}\n\nSend it?`)) return otMsg("Not sent.", true);
   }
   const d = await pfPost("order", req, [$("ot-buy"), $("ot-sell")]);
   if (d) {
@@ -1115,12 +1126,12 @@ $("ot-levn").addEventListener("input", e => { $("ot-levr").value = e.target.valu
 $("ot-levcancel").addEventListener("click", () => { $("ot-levbox").hidden = true; });
 $("ot-levok").addEventListener("click", async () => {
   const d = await pfPost("leverage", { symbol: MK.sym, leverage: Number($("ot-levn").value) }, [$("ot-levok")]);
-  if (d) { $("ot-levbox").hidden = true; otMsg(`Leverage for ${MK.sym} set to ${d.result}x.`); }
+  if (d) { $("ot-levbox").hidden = true; otMsg(`Leverage for ${MK.sym} set to ${d.result}x${REAL() ? " on your real Binance account" : ""}.`); }
 });
 document.querySelectorAll(".mk-tab[data-pf]").forEach(b => b.addEventListener("click", () => { OT.pf = b.dataset.pf; otSave(); pfRender(); }));
 $("pf-pos").addEventListener("click", async e => {
   const sym = e.target.dataset && e.target.dataset.close;
-  if (!sym || !confirm(`Close the ${VN()} ${sym} position at market?`)) return;
+  if (!sym || !confirm(REAL() ? `Close your REAL-MONEY ${sym} position at market on Binance?` : `Close the ${VN()} ${sym} position at market?`)) return;
   const d = await pfPost("close", { symbol: sym }, [e.target]);
   if (d) { const [text, bad] = otDescribe(d.result); otMsg(text, bad); }
 });

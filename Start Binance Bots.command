@@ -6,9 +6,12 @@
 #                  confirmation yourself. Dashboard http://127.0.0.1:8765
 #
 # Both start with arbitrage entries PAUSED (risk.start_paused); resume from the dashboard or Telegram /resume.
+# The mainnet dashboard's order ticket trades REAL money (--real-ticket): at most REAL_TICKET_MAX_USD per order, each
+# order asks you to confirm, and pausing the arbitrage bot does NOT pause it.
 # Only one bot may answer Telegram commands: the mainnet bot when it runs, otherwise the testnet bot.
 cd "$(dirname "$0")" || exit 1
 PY=.venv/bin/python
+REAL_TICKET_MAX_USD=100               # largest real-money order from the mainnet dashboard's ticket, in USDT
 TESTNET="run.py --live --testnet"
 MAINNET="run.py --live --config config.toml"
 mkdir -p logs
@@ -63,6 +66,7 @@ else
             echo
             echo "!!! The mainnet bot sends REAL orders with REAL money on your Binance account."
             echo "!!! It starts paused; it trades only after you press Resume (dashboard) or send /resume."
+            echo "!!! Its dashboard order ticket sends REAL orders right away (up to $REAL_TICKET_MAX_USD USDT each, you confirm each)."
             read -r -p "Type  TRADE REAL MONEY  to start it (anything else skips it): " confirm
             if [[ "$confirm" == "TRADE REAL MONEY" ]]; then
                 MAIN=start
@@ -98,7 +102,8 @@ if [[ "$MAIN" == "start" ]]; then
     echo "Starting the MAINNET bot (REAL MONEY, paused)..."
     : > logs/mainnet-bot.out
     ARBBOT_LIVE_ACK=I_UNDERSTAND_THIS_TRADES_REAL_MONEY DASHBOARD_PUSH_URL= DASHBOARD_PUSH_TOKEN= \
-        nohup "$PY" run.py --live --config config.toml > logs/mainnet-bot.out 2>&1 &
+        nohup "$PY" run.py --live --config config.toml --real-ticket --real-ticket-max-usd "$REAL_TICKET_MAX_USD" \
+        > logs/mainnet-bot.out 2>&1 &
     disown
     wait_for logs/mainnet-bot.out "MAINNET bot" http://127.0.0.1:8765 "$MAINNET"
 fi

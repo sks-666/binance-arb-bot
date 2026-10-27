@@ -219,6 +219,90 @@ class TicketTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((v["balance"], v["available"]), (5000.0, 4800.0))
 
 
+class RealMoneyTests(unittest.IsolatedAsyncioTestCase):
+    """--live --real-ticket: the same ticket on a MAINNET client, only by explicit opt-in and with a cap per order.
+    Every order here goes to the fake exchange; nothing reaches Binance."""
+
+    def mainnet(self):
+        ex = FakeTestnet()
+        ex.hosts = {"fapi": "https://fapi.binance.com", "spot": "https://api.binance.com"}
+        return ex
+
+    async def asyncSetUp(self):
+        self.ex, self.sent, self.why = self.mainnet(), [], ""
+        self.t = TestnetTicket(self.ex, None, notify=self.sent.append, real_money=True, max_order_usd=300,
+                               default_leverage=2, blocked=lambda: self.why)
+
+    async def test_a_mainnet_client_needs_the_opt_in_and_a_cap(self):
+        with self.assertRaises(RuntimeError):
+            TestnetTicket(self.mainnet(), None)
+        with self.assertRaises(RuntimeError):
+            TestnetTicket(self.mainnet(), None, real_money=True)
+        self.assertEqual(self.t.venue, "mainnet")
+        self.assertEqual(TestnetTicket(FakeTestnet(), None, real_money=True).venue, "testnet")
+
+    async def test_orders_within_the_cap_are_sent_and_announced_as_real_money(self):
+        o = await self.t.place_order(dict(symbol="BTCUSDT", side="buy", type="market", size_usdt=200))
+        self.assertEqual((o["status"], self.ex.posts[-1]["quantity"]), ("filled", "0.002"))
+        self.assertIn("MAINNET FUTURES BUY", self.sent[0])
+        self.assertIn("REAL MONEY", self.sent[0])
+        await self.t.refresh()
+        v = self.t.view()
+        self.assertEqual((v["venue"], v["max_order_usd"], v["default_leverage"]), ("mainnet", 300, 2))
+
+    async def test_an_order_above_the_cap_is_refused_but_closing_never_is(self):
+        with self.assertRaises(ValueError) as cm:
+            await self.t.place_order(dict(symbol="BTCUSDT", side="buy", type="market", size_usdt=500))
+        self.assertIn("cap", str(cm.exception))
+        self.assertEqual(self.ex.posts, [])
+        for _ in range(2):                                   # 2 x 160 USDT: a 320 USDT position, above the cap
+            await self.t.place_order(dict(symbol="BTCUSDT", side="buy", type="market", qty=0.002))
+        out = await self.t.close_position("BTCUSDT")
+        self.assertEqual((self.ex.posts[-1]["reduceOnly"], self.ex.posts[-1]["quantity"]), ("true", "0.004"))
+        self.assertEqual(out["status"], "filled")
+
+    async def test_the_kill_file_blocks_new_orders_but_not_closing(self):
+        await self.t.place_order(dict(symbol="BTCUSDT", side="buy", type="market", qty=0.002))
+        self.why = "the kill file KILL is present"
+        with self.assertRaises(ValueError) as cm:
+            await self.t.place_order(dict(symbol="BTCUSDT", side="buy", type="market", qty=0.002))
+        self.assertIn("kill file", str(cm.exception))
+        await self.t.close_position("BTCUSDT")
+        self.assertEqual(self.ex.posts[-1]["reduceOnly"], "true")
+
+    async def test_the_new_margin_uses_the_configured_leverage(self):
+        calls = []
+        post = self.ex.post
+
+        async def spy(venue, path, params=None, signed=True):
+            calls.append((path, dict(params or {})))
+            return await post(venue, path, params, signed)
+        self.ex.post = spy
+        await self.t.place_order(dict(symbol="BTCUSDT", side="buy", type="market", qty=0.002))
+        self.assertIn(("/fapi/v1/leverage", {"symbol": "BTCUSDT", "leverage": 2}), calls)
+
+    async def test_no_transfers(self):
+        with self.assertRaises(ValueError) as cm:
+            await self.t.transfer(100)
+        self.assertIn("Binance app", str(cm.exception))
+
+
+class RealTicketFlagTests(unittest.TestCase):
+    def test_the_flag_is_refused_outside_mainnet_live(self):
+        import asyncio
+        import os
+        from unittest import mock
+        from arbbot.main import amain, parse_args
+        keys = {k: "x" for k in ("BINANCE_TESTNET_FUTURES_API_KEY", "BINANCE_TESTNET_FUTURES_API_SECRET",
+                                 "BINANCE_TESTNET_SPOT_API_KEY", "BINANCE_TESTNET_SPOT_API_SECRET")}
+        for argv in (["--real-ticket"], ["--real-ticket", "--live", "--testnet", "--config", "config.testnet.toml"]):
+            with mock.patch("arbbot.main.load_dotenv"), mock.patch.dict(os.environ, keys), \
+                    self.assertRaises(SystemExit) as cm:          # never read the real .env, never connect
+                asyncio.run(amain(parse_args(argv)))
+            self.assertIn("--real-ticket", str(cm.exception))
+        self.assertEqual(parse_args([]).real_ticket_max_usd, 100.0)
+
+
 class SeparationTests(unittest.IsolatedAsyncioTestCase):
     async def test_the_arbitrage_bot_skips_the_tickets_coins(self):
         from arbbot.models import Signal

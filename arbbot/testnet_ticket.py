@@ -1,11 +1,13 @@
-"""The dashboard's order ticket on the Binance FUTURES TESTNET: real testnet orders, test money only.
+"""The dashboard's order ticket on a real Binance FUTURES account: the TESTNET (test money), or, only when opted in with
+real_money=True (run.py --live --real-ticket), MAINNET with real money.
 
 Same methods as arbbot/paper_futures.PaperFutures (the dashboard routes call either), but every order is sent to the
-testnet exchange and everything the page shows (balance, positions, open orders, fills) is read back from it.
+exchange and everything the page shows (balance, positions, open orders, fills) is read back from it.
 
 Safety, by construction:
-* It refuses to start unless its client points at a TESTNET host, so it can never send a mainnet order.
-* The testnet account is shared with the arbitrage bot (one position per coin in one-way mode), so the two never touch
+* It refuses a mainnet client unless real_money=True, and then it also needs a cap on each order's value
+  (max_order_usd); new orders are refused while the KILL file is present (`blocked`). Closing is always allowed.
+* The futures account is shared with the arbitrage bot (one position per coin in one-way mode), so the two never touch
   the same coin: the ticket refuses coins the arbitrage bot holds, the arbitrage bot skips coins the ticket owns, and
   the bot's startup check ignores the coins saved in `owned` (data/ticket-<state>.json).
 
@@ -58,12 +60,19 @@ def _fmt(d: Decimal) -> str:
 
 
 class TestnetTicket:
-    venue = "testnet"
-
     def __init__(self, client, path: Path | None, arb_symbols: Callable[[], set[str]] = lambda: set(),
-                 notify=None, taker_bps: float = 5.0, clock=time.time, poll_s: float = 4.0):
-        if "testnet" not in client.hosts.get("fapi", ""):
-            raise RuntimeError("the testnet order ticket only runs against a Binance TESTNET client")
+                 notify=None, taker_bps: float = 5.0, clock=time.time, poll_s: float = 4.0, real_money: bool = False,
+                 max_order_usd: float | None = None, default_leverage: int = DEFAULT_LEVERAGE,
+                 blocked: Callable[[], str] = lambda: ""):
+        if "testnet" in client.hosts.get("fapi", ""):
+            self.venue = "testnet"
+        elif not real_money:
+            raise RuntimeError("the order ticket only runs against a Binance TESTNET client unless real_money=True")
+        elif not (max_order_usd and max_order_usd > 0):
+            raise RuntimeError("a real-money order ticket needs a cap on each order's value (max_order_usd)")
+        else:
+            self.venue = "mainnet"
+        self.max_order_usd, self.default_leverage, self.blocked = max_order_usd, default_leverage, blocked
         self.c, self.path, self.arb_symbols, self.clock, self.poll_s = client, path, arb_symbols, clock, poll_s
         self.notify = notify or (lambda text: None)
         self.taker_bps = taker_bps
@@ -138,7 +147,7 @@ class TestnetTicket:
         except BinanceError as e:
             if e.code != -4046:                   # "No need to change margin type"
                 raise
-        await self.c.post("fapi", "/fapi/v1/leverage", {"symbol": sym, "leverage": self.leverage.get(sym, DEFAULT_LEVERAGE)})
+        await self.c.post("fapi", "/fapi/v1/leverage", {"symbol": sym, "leverage": self.leverage.get(sym, self.default_leverage)})
         self._margin_ready.add(sym)
 
     async def _quote(self, sym: str, book: bool = False) -> dict:
@@ -157,7 +166,7 @@ class TestnetTicket:
         if not SYMBOL_RE.match(sym):
             raise ValueError("symbol must look like BTCUSDT")
         if sym in self.arb_symbols():
-            raise ValueError(f"{sym} is held by the arbitrage bot on this testnet account; pick another coin")
+            raise ValueError(f"{sym} is held by the arbitrage bot on this {self.venue} account; pick another coin")
         return sym
 
     # ---- orders --------------------------------------------------------------------------------------
@@ -179,10 +188,13 @@ class TestnetTicket:
         tp, sl, slip = _num(req, "tp"), _num(req, "sl"), _num(req, "slippage_pct")
         if (tp or sl) and reduce_only:
             raise ValueError("TP/SL cannot be attached to a reduce-only order")
+        why = "" if reduce_only else self.blocked()
+        if why:
+            raise ValueError(f"new orders are blocked: {why} (closing a position still works)")
         async with self._lock:
             await self._ensure_filters()
             if sym not in self.filters:
-                raise ValueError(f"{sym} is not listed on the futures testnet")
+                raise ValueError(f"{sym} is not listed on the {self.venue} futures exchange")
             buy = side == "buy"
             q = await self._quote(sym, book=typ == "market")
             price = None
@@ -199,6 +211,9 @@ class TestnetTicket:
                 raise ValueError(f"size is below the minimum quantity for {sym} ({_fmt(f['min_qty'])})")
             if not reduce_only and float(qd) * ref < f["min_notional"]:
                 raise ValueError(f"order value must be at least {f['min_notional']:g} USDT on {sym}")
+            if self.max_order_usd and not reduce_only and float(qd) * ref > self.max_order_usd:
+                raise ValueError(f"order value {float(qd) * ref:,.2f} USDT is above the {self.max_order_usd:g} USDT cap per "
+                                 f"order (run.py --real-ticket-max-usd)")
             if tp and (tp <= ref if buy else tp >= ref):
                 raise ValueError("take-profit must be above the entry for a long, below it for a short")
             if sl and (sl >= ref if buy else sl <= ref):
@@ -210,8 +225,8 @@ class TestnetTicket:
                 if moved > slip:
                     raise ValueError(f"would slip about {moved:.2f}% through the order book (tolerance {slip:g}%)")
             if typ.startswith("stop") and (tp or sl):
-                raise ValueError("on testnet, add TP/SL once the conditional order has filled (attach it to a limit "
-                                 "or market order instead)")
+                raise ValueError("add TP/SL once the conditional order has filled (attach it to a limit or market "
+                                 "order instead)")
             params = {"symbol": sym, "side": side.upper(), "quantity": _fmt(qd)}
             if reduce_only:
                 params["reduceOnly"] = "true"
@@ -248,8 +263,8 @@ class TestnetTicket:
             self._history(dict(out, updated=int(self.clock() * 1000)))
             self._save()
         if out["status"] == "filled":
-            self.notify(f"🧾 TESTNET FUTURES {side.upper()} {typ.replace('_', ' ')} {sym}: {out['qty']:.8g} @ "
-                        f"{out['filled_px'] or 0:.8g} (testnet: test money)")
+            self.notify(f"🧾 {self.venue.upper()} FUTURES {side.upper()} {typ.replace('_', ' ')} {sym}: {out['qty']:.8g} @ "
+                        f"{out['filled_px'] or 0:.8g} ({'testnet: test money' if self.venue == 'testnet' else 'REAL MONEY'})")
         await self._safe_refresh()
         return out
 
@@ -281,14 +296,14 @@ class TestnetTicket:
                     "triggerPrice": _fmt(self._px(sym, px)), "closePosition": "true", "workingType": "CONTRACT_PRICE"})
             except BinanceError as e:                  # the entry stands; say clearly that its protection is missing
                 log.error("%s: could not place the %s for order %s: %s", sym, kind, parent, e)
-                self.notify(f"⚠️ TESTNET {sym}: the {kind.replace('_', ' ').lower()} could not be placed ({e.msg}). "
+                self.notify(f"⚠️ {self.venue.upper()} {sym}: the {kind.replace('_', ' ').lower()} could not be placed ({e.msg}). "
                             f"The position is open without it.")
 
     async def cancel(self, order_id) -> dict:
         async with self._lock:
             o = next((x for x in self.open_orders if str(x.get("orderId")) == str(order_id)), None)
             if o is None:
-                raise ValueError("no such open order on the testnet account")
+                raise ValueError(f"no such open order on the {self.venue} account")
             self._check_symbol(o["symbol"])
             if "_algo" in o:                                 # a conditional order: cancelled through the Algo API
                 await self.c.request("fapi", "DELETE", "/fapi/v1/algoOrder", {"algoId": o["_algo"]}, signed=True)
@@ -353,6 +368,8 @@ class TestnetTicket:
             return self.leverage[sym]
 
     async def transfer(self, amount) -> float:
+        if self.venue == "mainnet":
+            raise ValueError("move real USDT between your spot and futures wallets in the Binance app, not here")
         raise ValueError("testnet USDT comes from Binance's futures testnet itself; there is nothing to transfer here")
 
     # ---- reading the account -------------------------------------------------------------------------
@@ -439,7 +456,7 @@ class TestnetTicket:
         while True:
             await self._safe_refresh()
             if self.last_error:
-                log.warning("testnet ticket refresh failed: %s", self.last_error)
+                log.warning("%s ticket refresh failed: %s", self.venue, self.last_error)
             # Binance reports this IP's request weight for the last minute in every reply; the testnet bans an IP that
             # keeps going over its limit (HTTP 418), so say it out loud before that happens.
             used = getattr(self.c, "used_weight", {}).get("fapi", 0)
@@ -449,7 +466,7 @@ class TestnetTicket:
                 busiest = sorted(((n - seen.get(k, 0), k) for k, n in calls.items()), reverse=True)[:6]
                 seen = calls
                 (log.warning if used >= 1200 else log.info)(
-                    "testnet request weight used this minute: %d of 2400%s | most requests since last: %s", used,
+                    "%s request weight used this minute: %d of 2400%s | most requests since last: %s", self.venue, used,
                     " (high)" if used >= 1200 else "", ", ".join(f"{k} x{n}" for n, k in busiest if n))
             await asyncio.sleep(self.poll_s)
 
@@ -466,12 +483,12 @@ class TestnetTicket:
                 continue
             mark, entry = float(p.get("markPrice") or 0), float(p.get("entryPrice") or 0)
             margin = float(p.get("isolatedMargin") or p.get("isolatedWallet") or 0) or abs(amt) * entry / max(
-                1, int(float(p.get("leverage") or DEFAULT_LEVERAGE)))
+                1, int(float(p.get("leverage") or self.default_leverage)))
             pnl = float(p.get("unRealizedProfit") or p.get("unrealizedProfit") or 0)
             liq = float(p.get("liquidationPrice") or 0)
             positions.append(dict(symbol=p["symbol"], side="long" if amt > 0 else "short", qty=abs(amt), entry=entry,
                                   mark=mark, notional=abs(amt) * mark, margin=margin,
-                                  leverage=int(float(p.get("leverage") or self.leverage.get(p["symbol"], DEFAULT_LEVERAGE))),
+                                  leverage=int(float(p.get("leverage") or self.leverage.get(p["symbol"], self.default_leverage))),
                                   pnl=pnl, roe=pnl / margin * 100 if margin else 0.0, liq=liq or None, realized=0.0,
                                   funding=0.0, opened=int(p.get("updateTime") or 0)))
         orders = []
@@ -495,9 +512,10 @@ class TestnetTicket:
                        role="maker" if f.get("maker") else "taker", liquidation=False) for f in self.fills]
         balance, available = self._usdt("walletBalance"), self._usdt("availableBalance")
         upnl = sum(p["pnl"] for p in positions)
-        return dict(venue="testnet", balance=balance, available=available, unrealized=upnl, equity=balance + upnl,
+        return dict(venue=self.venue, balance=balance, available=available, unrealized=upnl, equity=balance + upnl,
                     deposits=self.s["start_balance"] or balance, leverage=dict(self.leverage),
-                    default_leverage=DEFAULT_LEVERAGE, max_leverage=MAX_LEVERAGE, maker_bps=2.0,
+                    default_leverage=self.default_leverage, max_leverage=MAX_LEVERAGE, maker_bps=2.0,
+                    max_order_usd=self.max_order_usd,
                     taker_bps=self.taker_bps, mmr=0.005, min_notional=5.0, positions=positions, orders=orders,
                     order_history=self.s["history"][-50:][::-1], trades=trades, error=self.last_error,
                     arb_symbols=sorted(arb))
