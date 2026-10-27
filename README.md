@@ -23,7 +23,7 @@ Open <http://127.0.0.1:8765>. Run the tests with `.venv/bin/python -m unittest t
 | `run.py --no-trade` | Monitor only. |
 | `run.py --live --testnet` | Real order flow against Binance **testnet**. Needs testnet API keys. |
 | `run.py --live` | Real money. Also needs `ARBBOT_LIVE_ACK` (see below). |
-| `Start Binance Bots.command` | Double-click (macOS): starts the testnet bot (port 8767, with the trend mirror), and the real-money mainnet bot (port 8765) only if you say yes, its read-only `--check` passes and you type `TRADE REAL MONEY`. Both start paused and keep running after the window closes. `Stop Binance Bots.command` stops them. |
+| `Start Binance Bots.command` | Double-click (macOS): starts the testnet bot (port 8767, with the trend mirror), and the real-money mainnet bot (port 8765) only if you say yes, its read-only `--check` passes and you type `TRADE REAL MONEY`. The testnet bot starts paused; the mainnet bot runs `--no-trade` (monitor only: it never opens arbitrage entries, and Resume cannot turn them on), so its only real orders are the ones you place in its dashboard's order ticket (`--real-ticket`). Both keep running after the window closes. `Stop Binance Bots.command` stops them. |
 
 Useful flags: `--max-markets N`, `--interval S`, `--min-samples N`, `--port P`, `--no-commands` (Telegram alerts
 without commands, for a second bot: only one bot per Telegram token may poll for commands).
@@ -242,8 +242,8 @@ live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 e
   check ignores the ticket's coins, saved in `data/ticket-live-testnet-real.json`). The bot logs the testnet request
   weight every 30 s with the busiest endpoints: the testnet bans an IP that keeps exceeding 2,400 a minute, and the IP
   Binance sees may be shared with other traffic.
-* **REAL-MONEY order ticket on MAINNET (opt-in).** `run.py --live --config config.toml --real-ticket` (what
-  `Start Binance Bots.command` runs for mainnet) makes the mainnet dashboard's ticket send **real orders to your Binance
+* **REAL-MONEY order ticket on MAINNET (opt-in).** `run.py --live --config config.toml --real-ticket` (the
+  launcher adds `--no-trade`, so on mainnet only your own ticket orders are real) makes the mainnet dashboard's ticket send **real orders to your Binance
   USD-M futures account**, with the same behaviour as the testnet ticket. Guards: the badge turns red (REAL MONEY);
   every order and every Market close asks you to confirm; one order is worth at most `--real-ticket-max-usd` USDT
   (default 100; the launcher's `REAL_TICKET_MAX_USD`), closing is never capped; new orders are refused while the

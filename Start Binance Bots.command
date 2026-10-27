@@ -5,7 +5,9 @@
 #   MAINNET bot  - REAL MONEY. Only if you say so here: the read-only account check must pass first, then you type the
 #                  confirmation yourself. Dashboard http://127.0.0.1:8765
 #
-# Both start with arbitrage entries PAUSED (risk.start_paused); resume from the dashboard or Telegram /resume.
+# The testnet bot starts with arbitrage entries PAUSED (risk.start_paused); resume from the dashboard or /resume.
+# The mainnet bot NEVER opens arbitrage entries (--no-trade, monitor only: signals and alerts; Resume cannot turn
+# entries on). Its only real-money orders are the ones you place yourself in the dashboard's order ticket.
 # The mainnet dashboard's order ticket trades REAL money (--real-ticket): at most REAL_TICKET_MAX_USD per order, each
 # order asks you to confirm, and pausing the arbitrage bot does NOT pause it.
 # Only one bot may answer Telegram commands: the mainnet bot when it runs, otherwise the testnet bot.
@@ -65,7 +67,7 @@ else
         if "$PY" run.py --check --config config.toml; then
             echo
             echo "!!! The mainnet bot sends REAL orders with REAL money on your Binance account."
-            echo "!!! It starts paused; it trades only after you press Resume (dashboard) or send /resume."
+            echo "!!! It never opens arbitrage trades by itself (monitor only: signals and alerts)."
             echo "!!! Its dashboard order ticket sends REAL orders right away (up to $REAL_TICKET_MAX_USD USDT each, you confirm each)."
             read -r -p "Type  TRADE REAL MONEY  to start it (anything else skips it): " confirm
             if [[ "$confirm" == "TRADE REAL MONEY" ]]; then
@@ -99,10 +101,10 @@ fi
 
 # ---- start mainnet last, once the testnet bot has let go of the Telegram commands -------------------------------
 if [[ "$MAIN" == "start" ]]; then
-    echo "Starting the MAINNET bot (REAL MONEY, paused)..."
+    echo "Starting the MAINNET bot (monitor only; REAL-MONEY order ticket)..."
     : > logs/mainnet-bot.out
     ARBBOT_LIVE_ACK=I_UNDERSTAND_THIS_TRADES_REAL_MONEY DASHBOARD_PUSH_URL= DASHBOARD_PUSH_TOKEN= \
-        nohup "$PY" run.py --live --config config.toml --real-ticket --real-ticket-max-usd "$REAL_TICKET_MAX_USD" \
+        nohup "$PY" run.py --live --config config.toml --no-trade --real-ticket --real-ticket-max-usd "$REAL_TICKET_MAX_USD" \
         > logs/mainnet-bot.out 2>&1 &
     disown
     wait_for logs/mainnet-bot.out "MAINNET bot" http://127.0.0.1:8765 "$MAINNET"
