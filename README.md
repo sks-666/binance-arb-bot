@@ -24,6 +24,7 @@ Open <http://127.0.0.1:8765>. Run the tests with `.venv/bin/python -m unittest t
 | `run.py --live --testnet` | Real order flow against Binance **testnet**. Needs testnet API keys. |
 | `run.py --live` | Real money. Also needs `ARBBOT_LIVE_ACK` (see below). |
 | `Start Binance Bots.command` | Double-click (macOS): starts the testnet bot (port 8767, with the trend mirror), and the real-money mainnet bot (port 8765) only if you say yes, its read-only `--check` passes and you type `TRADE REAL MONEY`. The testnet bot starts paused; the mainnet bot runs `--no-trade` (monitor only: it never opens arbitrage entries, and Resume cannot turn them on), so its only real orders are the ones you place in its dashboard's order ticket (`--real-ticket`). Both keep running after the window closes. `Stop Binance Bots.command` stops them. |
+| `Run Backtests.command` | Double-click (macOS): a menu for the backtests below, with no orders and no account access. It covers the swing strategies on 4h or daily candles (or your own choice of strategy, coins, candle size, days and risk), the journal summary, and the arbitrage replay, sweep and slippage over `data/recordings`. Each run is also saved to `logs/backtests/`: the report as `.txt`, swing trades as `.csv`. |
 
 Useful flags: `--max-markets N`, `--interval S`, `--min-samples N`, `--port P`, `--no-commands` (Telegram alerts
 without commands, for a second bot: only one bot per Telegram token may poll for commands).
