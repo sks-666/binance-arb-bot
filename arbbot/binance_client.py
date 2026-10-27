@@ -2,11 +2,14 @@
 import hashlib
 import hmac
 import json
+import logging
 import time
 import urllib.parse
 from collections import Counter
 
 import aiohttp
+
+log = logging.getLogger("binance")
 
 HOSTS = {
     "mainnet": {"fapi": "https://fapi.binance.com", "spot": "https://api.binance.com"},
@@ -42,11 +45,12 @@ class BinanceClient:
         self.used_weight = {"fapi": 0, "spot": 0}
         self.calls: Counter = Counter()     # "venue path" -> requests sent (to find what spends the request weight)
         self.backoff_until = 0.0
+        self.backoff_status = 429          # 418 = Binance banned this IP for a while, 429 = slow down
 
     async def request(self, venue: str, method: str, path: str, params: dict | None = None, signed: bool = False,
                       timeout: float | None = None):
         if time.time() < self.backoff_until:
-            raise NotSentError(429, None, "local rate-limit backoff active", path)
+            raise NotSentError(self.backoff_status, None, self.backoff_text(), path)
         params = {k: v for k, v in (params or {}).items() if v is not None}
         headers = {}
         api_key, api_secret = self.venue_keys.get(venue, (self.api_key, self.api_secret))
@@ -73,6 +77,8 @@ class BinanceClient:
             if resp.status in (418, 429):
                 retry_after = resp.headers.get("Retry-After", "10")
                 self.backoff_until = time.time() + (int(retry_after) if retry_after.isdigit() else 10)
+                self.backoff_status = resp.status
+                log.warning("Binance %s answered HTTP %s on %s: %s", self.env, resp.status, path, self.backoff_text())
             try:
                 data = json.loads(body)
             except ValueError:
@@ -86,6 +92,14 @@ class BinanceClient:
     def paused_for(self) -> float:
         """Seconds left in the rate-limit backoff (Binance's 429 / 418 Retry-After); 0 when requests can be sent."""
         return max(0.0, self.backoff_until - time.time())
+
+    def backoff_text(self) -> str:
+        """The backoff in words: why, and when requests can be sent again (local time)."""
+        mins, secs = divmod(round(self.paused_for()), 60)
+        why = ("Binance has temporarily banned this network's IP address for too many requests (HTTP 418)"
+               if self.backoff_status == 418 else "Binance asked this network's IP address to slow down (HTTP 429)")
+        when = time.strftime("%H:%M:%S", time.localtime(self.backoff_until))
+        return f"{why}; requests are held back until {when} ({mins} min {secs} s from now)"
 
     async def get(self, venue: str, path: str, params: dict | None = None, signed: bool = False,
                   timeout: float | None = None):
