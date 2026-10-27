@@ -11,7 +11,9 @@ the order ticket (arbbot/testnet_ticket.py), so every testnet order goes through
 
 Coins the arbitrage bot holds, or that already have a testnet position, are skipped (one position per coin in one-way
 mode). Positions the account held before mirroring started are not copied: entering them now would be a different trade.
-Testnet only, by construction: the ticket refuses any non-testnet client. State: data/swing-mirror-testnet.json.
+Several accounts can be mirrored at once (one SwingMirror each, `--swing-mirror trend,swing,smc`): the first to open a
+coin owns it on the testnet and the others skip that trade.
+Testnet only, by construction: the ticket refuses any non-testnet client. State: data/swing-mirror-testnet-<account>.json.
 """
 import asyncio
 import json
@@ -22,6 +24,27 @@ from pathlib import Path
 
 log = logging.getLogger("swing-mirror")
 TRAIL_MIN_MOVE = 0.001          # move the exchange stop only when the paper stop moved at least 0.1%
+ACCOUNTS = ("trend", "swing", "smc")
+
+
+def parse_accounts(spec: str) -> list[str]:
+    """--swing-mirror trend | trend,swing,smc | all  ->  the accounts to mirror, in a fixed order (first one wins a
+    coin: the testnet account is one-way, so a coin another mirrored account already holds is skipped)."""
+    names = list(ACCOUNTS) if spec.strip().lower() == "all" else [s.strip().lower() for s in spec.split(",") if s.strip()]
+    bad = [n for n in names if n not in ACCOUNTS]
+    if bad or not names:
+        raise ValueError(f"--swing-mirror takes {', '.join(ACCOUNTS)} (comma separated) or all, got {spec!r}")
+    return [n for n in ACCOUNTS if n in names]
+
+
+def state_path(data_dir: Path, strategy: str) -> Path:
+    """One state file per mirrored account. The trend mirror's older single file is taken over, so its record of what
+    was already copied (and must not be copied again) survives the upgrade."""
+    path = Path(data_dir) / f"swing-mirror-testnet-{strategy}.json"
+    legacy = Path(data_dir) / "swing-mirror-testnet.json"
+    if strategy == "trend" and legacy.exists() and not path.exists():
+        os.replace(legacy, path)
+    return path
 
 
 class SwingMirror:
@@ -124,18 +147,29 @@ class SwingMirror:
                 m["stop"] = new
         self._save()
 
+    async def step_safely(self) -> None:
+        try:
+            await self.step()
+            self.last_error = ""
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:                             # never stop the bot; try again next round
+            self.last_error = f"{type(e).__name__}: {str(e)[:160]}"
+            log.warning("%s mirror step failed: %s", self.strategy, self.last_error)
+
     async def run(self) -> None:
-        while True:
-            try:
-                await self.step()
-                self.last_error = ""
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:                         # never stop the bot; try again next round
-                self.last_error = f"{type(e).__name__}: {str(e)[:160]}"
-                log.warning("%s mirror step failed: %s", self.strategy, self.last_error)
-            await asyncio.sleep(self.poll_s)
+        await run_all([self])
 
     def view(self) -> dict:
         return dict(strategy=self.strategy, fund=self.fund, start_ts=self.s["start_ts"], open=dict(self.s["open"]),
                     recent=list(self.s["done"].items())[-10:], error=self.last_error)
+
+
+async def run_all(mirrors: list[SwingMirror]) -> None:
+    """Step the mirrors one after another, never two at once: two mirrors deciding on the same coin together could both
+    see it free and both send an order. Each step starts by re-reading the testnet account, so the next mirror sees the
+    previous one's fills."""
+    while True:
+        for m in mirrors:
+            await m.step_safely()
+        await asyncio.sleep(min(m.poll_s for m in mirrors))

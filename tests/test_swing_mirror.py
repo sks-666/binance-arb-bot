@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from arbbot.swing_mirror import SwingMirror
+from arbbot.swing_mirror import SwingMirror, parse_accounts, state_path
 
 START = 1_800_000_000_000
 
@@ -12,11 +12,11 @@ START = 1_800_000_000_000
 class FakeRunner:
     def __init__(self, capital=100.0):
         self.cfg = SimpleNamespace(strategies=["trend", "swing", "smc"])
-        self.accounts = {"trend": {"capital": capital}}
+        self.accounts = {name: {"capital": capital} for name in self.cfg.strategies}
         self.results = {}
 
-    def hold(self, *positions):
-        self.results["trend"] = SimpleNamespace(open_positions=list(positions))
+    def hold(self, *positions, account="trend"):
+        self.results[account] = SimpleNamespace(open_positions=list(positions))
 
 
 def pos(sym="SOLUSDT", side="long", entry_ts=START + 1, stop=170.0, qty=0.05):
@@ -138,6 +138,71 @@ class MirrorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.ticket.orders, [])
         with self.assertRaises(ValueError):
             SwingMirror(self.runner, self.ticket, "momentum")
+
+
+class SeveralAccountsTests(unittest.IsolatedAsyncioTestCase):
+    """--swing-mirror trend,swing,smc: one mirror per account on one testnet account, stepped one after another."""
+    def setUp(self):
+        self.runner, self.ticket, self.dir = FakeRunner(), FakeTicket(), Path(tempfile.mkdtemp())
+        self.m = {n: SwingMirror(self.runner, self.ticket, n, 10_000.0, state_path(self.dir, n), clock=lambda: START / 1000)
+                  for n in parse_accounts("all")}
+
+    async def step_all(self):
+        for m in self.m.values():                                          # the order run_all steps them in
+            await m.step()
+
+    async def test_each_account_copies_its_own_coins(self):
+        self.runner.hold(pos("SOLUSDT"), account="trend")
+        self.runner.hold(pos("ETHUSDT", "short", stop=2400.0), account="swing")
+        self.runner.hold(pos("BNBUSDT"), account="smc")
+        await self.step_all()
+        self.assertEqual([(o["symbol"], o["side"]) for o in self.ticket.orders],
+                         [("SOLUSDT", "buy"), ("ETHUSDT", "sell"), ("BNBUSDT", "buy")])
+        self.assertEqual({n: list(m.s["open"]) for n, m in self.m.items()},
+                         {"trend": ["SOLUSDT"], "swing": ["ETHUSDT"], "smc": ["BNBUSDT"]})
+
+    async def test_a_coin_is_owned_by_the_first_account_and_only_it_closes_it(self):
+        self.runner.hold(pos("SOLUSDT"), account="trend")
+        self.runner.hold(pos("SOLUSDT", "short", stop=200.0), account="swing")
+        await self.step_all()
+        self.assertEqual([(o["symbol"], o["side"]) for o in self.ticket.orders], [("SOLUSDT", "buy")])
+        self.assertIn("already has a position", self.m["swing"].s["done"][f"SOLUSDT:{START + 1}"])
+        self.runner.hold(account="swing")                                  # swing's paper trade ends: trend's copy stays
+        await self.step_all()
+        self.assertEqual((self.ticket.closed, self.ticket.position("SOLUSDT")), ([], 0.05 * 100))
+        self.runner.hold(account="trend")                                  # trend's ends: now it is closed
+        await self.step_all()
+        self.assertEqual(self.ticket.closed, ["SOLUSDT"])
+
+    def test_account_lists(self):
+        self.assertEqual(parse_accounts("all"), ["trend", "swing", "smc"])
+        self.assertEqual(parse_accounts(" SMC, trend "), ["trend", "smc"])
+        for bad in ("", "trend,momentum", ","):
+            with self.assertRaises(ValueError):
+                parse_accounts(bad)
+
+    def test_the_old_trend_state_file_is_taken_over(self):
+        d = Path(tempfile.mkdtemp())
+        (d / "swing-mirror-testnet.json").write_text('{"start_ts": 1, "open": {}, "done": {"SOLUSDT:5": "x"}}')
+        path = state_path(d, "trend")
+        self.assertEqual((path.name, (d / "swing-mirror-testnet.json").exists()), ("swing-mirror-testnet-trend.json", False))
+        self.assertEqual(SwingMirror(self.runner, self.ticket, "trend", path=path).s["done"], {"SOLUSDT:5": "x"})
+        self.assertEqual(state_path(d, "swing").name, "swing-mirror-testnet-swing.json")
+
+
+class MirrorFlagTests(unittest.TestCase):
+    def test_an_unknown_account_is_refused_before_anything_connects(self):
+        import asyncio
+        import os
+        from unittest import mock
+        from arbbot.main import amain, parse_args
+        keys = {k: "x" for k in ("BINANCE_TESTNET_FUTURES_API_KEY", "BINANCE_TESTNET_FUTURES_API_SECRET",
+                                 "BINANCE_TESTNET_SPOT_API_KEY", "BINANCE_TESTNET_SPOT_API_SECRET")}
+        argv = ["--live", "--testnet", "--config", "config.testnet.toml", "--swing", "--swing-mirror", "trend,momentum"]
+        with mock.patch("arbbot.main.load_dotenv"), mock.patch.dict(os.environ, keys), \
+                self.assertRaises(SystemExit) as cm:                      # never read the real .env, never connect
+            asyncio.run(amain(parse_args(argv)))
+        self.assertIn("--swing-mirror takes trend, swing, smc", str(cm.exception))
 
 
 if __name__ == "__main__":

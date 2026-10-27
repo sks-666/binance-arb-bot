@@ -133,9 +133,10 @@ def parse_args(argv=None) -> argparse.Namespace:
                         "futures account instead of a paper account (capped by --real-ticket-max-usd)")
     p.add_argument("--real-ticket-max-usd", type=float, default=100.0,
                    help="largest value in USDT of one real-money ticket order (default 100); closing is never capped")
-    p.add_argument("--swing-mirror", choices=["trend", "swing", "smc"],
-                   help="TESTNET only (with --swing --live --testnet): copy this swing account's new trades onto the "
-                        "futures testnet as real testnet orders with exchange-side stops")
+    p.add_argument("--swing-mirror", metavar="trend,swing,smc|all",
+                   help="TESTNET only (with --swing --live --testnet): copy these swing accounts' new trades onto the "
+                        "futures testnet as real testnet orders with exchange-side stops (one account, a comma "
+                        "separated list, or all; a coin another mirrored account already holds is skipped)")
     p.add_argument("--swing-mirror-fund", type=float, default=10_000.0,
                    help="size the testnet copies as if the mirrored account held this many dollars (default 10000)")
     p.add_argument("--swing", action="store_true",
@@ -258,6 +259,12 @@ async def amain(args: argparse.Namespace) -> None:
         sys.exit("--real-ticket-max-usd must be above 0")
     if args.swing_mirror and not (args.swing and live and cfg.execution.env == "testnet"):
         sys.exit("--swing-mirror copies swing trades to the TESTNET only: it needs --swing --live --testnet")
+    if args.swing_mirror:                # a typo fails here, before anything connects
+        from .swing_mirror import parse_accounts
+        try:
+            parse_accounts(args.swing_mirror)
+        except ValueError as e:
+            sys.exit(str(e))
     if args.check:   # read-only: never builds the engine, never sends an order
         sys.exit(await run_check(cfg, live_keys(cfg.execution.env)))
     setup_logging()
@@ -383,9 +390,9 @@ async def amain(args: argparse.Namespace) -> None:
                 swing = SwingRunner(paper_cfg_from(args, "swing-", symbols, auto), swing_client,
                                     Journal(ROOT / args.swing_journal_db), notify=alerts.send)
                 if args.swing_mirror:
-                    from .swing_mirror import SwingMirror
-                    mirror = SwingMirror(swing, ticket, args.swing_mirror, args.swing_mirror_fund,
-                                         ROOT / "data" / "swing-mirror-testnet.json", notify=alerts.send)
+                    from .swing_mirror import SwingMirror, parse_accounts, state_path
+                    mirror = [SwingMirror(swing, ticket, name, args.swing_mirror_fund, state_path(ROOT / "data", name),
+                                          notify=alerts.send) for name in parse_accounts(args.swing_mirror)]
             except ImportError:
                 sys.exit("--swing needs the swingkit/ folder next to arbbot/.")
             except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as e:
@@ -460,10 +467,11 @@ async def amain(args: argparse.Namespace) -> None:
             coros.append(sampler.run())
         if swing is not None:
             coros.append(swing.run())
-        if mirror is not None:
-            coros.append(mirror.run())
-            log.info("swing mirror: copying the %s account's new trades to the futures TESTNET (sized for $%.0f)",
-                     mirror.strategy, mirror.fund)
+        if mirror:
+            from .swing_mirror import run_all
+            coros.append(run_all(mirror))
+            log.info("swing mirror: copying new trades of the %s account%s to the futures TESTNET (each sized for $%.0f)",
+                     "+".join(m.strategy for m in mirror), "s" if len(mirror) > 1 else "", args.swing_mirror_fund)
             log.info("swing toolkit: paper accounts %s on %s candles for %d markets (journal %s); /setups /journal /swing",
                      "+".join(swing.cfg.strategies), swing.cfg.interval, len(swing.symbols), args.swing_journal_db)
         tasks = [asyncio.create_task(c) for c in coros]
