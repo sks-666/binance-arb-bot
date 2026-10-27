@@ -351,14 +351,18 @@ class SwingRunner:
 
     def _build_snapshot(self) -> dict:
         accounts, open_, setups = [], [], []
+        day_start = int(self.clock() // 86_400 * 86_400 * 1000)       # today's UTC midnight, in ms like closed_at
         for name, res in self.results.items():
             acct = self.accounts[name]
             st = self.journal.stats(mode="paper", run_id=self.run_id(name))
+            today = [t["pnl_usd"] for t in self.journal.trades(mode="paper", run_id=self.run_id(name), status="closed",
+                                                                limit=None) if (t["closed_at"] or 0) >= day_start]
             equity = res.equity[-1][1] if res.equity else acct["capital"]
             accounts.append(dict(strategy=name, equity=equity, return_pct=(equity / acct["capital"] - 1) * 100,
                                  capital=acct["capital"], start_ts=acct["start_ts"],
                                  open=len(res.open_positions), closed=st["closed"], wins=st["wins"],
-                                 win_rate=st["win_rate"], avg_r=st["avg_r"], total_pnl=st["total_pnl"]))
+                                 losses=st["closed"] - st["wins"], win_rate=st["win_rate"], avg_r=st["avg_r"],
+                                 total_pnl=st["total_pnl"], today_pnl=sum(today), closed_today=len(today)))
             open_ += [dict(strategy=name, symbol=p["symbol"], side=p["side"], entry=p["entry_px"], stop=p["stop"],
                            target=p["target"], mark=p["mark"], pnl=p["unrealised_usd"], r=p["unrealised_r"],
                            entry_ts=p["entry_ts"], reason=p["reason_in"]) for p in res.open_positions]

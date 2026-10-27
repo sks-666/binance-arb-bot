@@ -417,9 +417,15 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((t["strategy"], t["symbol"], t["side"], t["reason"]), ("trend", "BTCUSDT", "long", "stop"))
         self.assertLess(t["pnl"], 0)
         acct = s["accounts"][0]
-        self.assertEqual((acct["closed"], acct["wins"], acct["open"]), (1, 0, 0))
+        self.assertEqual((acct["closed"], acct["wins"], acct["losses"], acct["open"]), (1, 0, 1, 0))
         self.assertLess(acct["equity"], 10_000.0)
         self.assertLess(acct["return_pct"], 0)
+        r.clock = lambda: t["closed_at"] / 1000                              # the UTC day the trade closed: it counts today
+        a = r._build_snapshot()["accounts"][0]
+        self.assertEqual((a["today_pnl"], a["closed_today"]), (t["pnl"], 1))
+        r.clock = lambda: t["closed_at"] / 1000 + 86_400                     # the next UTC day: today starts from zero
+        a = r._build_snapshot()["accounts"][0]
+        self.assertEqual((a["today_pnl"], a["closed_today"], a["total_pnl"]), (0, 0, t["pnl"]))
 
         text = json.dumps(s)                                                  # must travel to the browser and to Upstash
         for secret in ("token", "TOKEN", "password", "api_key"):

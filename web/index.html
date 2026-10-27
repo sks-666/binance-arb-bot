@@ -248,6 +248,7 @@
         <span class="sw-power" id="sw-power" hidden><span id="sw-power-l"></span><button type="button" class="sw-toggle" id="sw-toggle" role="switch" aria-checked="true" aria-label="Swing toolkit on or off"></button></span></div></div>
     <div id="sw-off" class="empty" hidden>The swing toolkit is not running in this bot. Start it with <code>--swing</code> to paper-trade the trend, swing and Smart Money strategies.</div>
     <div id="sw-on" hidden>
+      <div class="kpis" id="sw-kpis" aria-label="Swing totals, all accounts"></div>
       <div class="kpis" id="sw-accts"></div>
       <div class="sw-fund" id="sw-fund" hidden></div>
       <div class="sw-grid">
@@ -469,6 +470,17 @@ function renderSwing() {
   const usd = v => "$" + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   $("sw-hint").textContent = w.loading ? "loading the first candles…"
     : `${w.interval} · ${w.symbols.length > 8 ? w.symbols.length + " markets" : w.symbols.map(s => s.replace(/USDT$/, "")).join(" ")} · since ${new Date(w.start_ts).toISOString().slice(0, 16).replace("T", " ")} UTC · checked ${w.checked_age_s == null ? "–" : dur(w.checked_age_s) + " ago"}`;
+  const A = w.accounts, sum = f => A.reduce((t, a) => t + (a[f] || 0), 0), each = f => A.map(a => `${a.strategy} ${f(a)}`).join(" · ");
+  const wins = sum("wins"), closed = sum("closed"), real = sum("total_pnl"), today = sum("today_pnl");
+  const kpi = (label, v, vcls, sub, tip) => `<div class="kpi" title="${esc(tip)}"><div class="l">${label}</div><div class="v ${vcls}">${v}</div><div class="s">${sub}</div></div>`;
+  $("sw-kpis").innerHTML = A.length ? [   // totals over the three paper accounts, like the arbitrage cards above
+    kpi("Swing open positions", sum("open"), "", esc(each(a => a.open)), "Open paper positions per account"),
+    kpi("Swing realised P&amp;L", money(real), cls(real), `unrealised ${money(w.open.reduce((t, p) => t + (p.pnl || 0), 0))}`,
+        each(a => money(a.total_pnl))),
+    kpi("Swing today (UTC)", money(today), cls(today), `${sum("closed_today")} closed today`, each(a => money(a.today_pnl || 0))),
+    kpi("Swing win rate", closed ? (wins / closed * 100).toFixed(0) + "%" : "–", "", `${wins}W / ${closed - wins}L`,
+        each(a => a.closed ? `${a.wins}W/${a.closed - a.wins}L` : "no trades")),
+  ].join("") : "";
   $("sw-accts").innerHTML = w.accounts.length ? w.accounts.map(a =>
     `<div class="kpi"><div class="l">${esc(a.strategy)} · ${usd(a.capital)} fund</div><div class="v">${usd(a.equity)}</div>` +
     `<div class="s"><span class="${cls(a.return_pct)}">${sg(a.return_pct, 2)}%</span> · ${a.open} open · ${a.closed} closed${a.closed ? ` · ${a.wins}W · ${sg(a.avg_r, 2)}R avg` : ""}</div></div>`

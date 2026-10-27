@@ -87,8 +87,10 @@ class SwingMirror:
                 self._done(key, f"closed: {self.strategy} exited")
             elif amt == 0:
                 del opened[sym]
-                self._done(key, "closed on the exchange (its stop fired before the paper exit)")
-                self.notify(f"🔁 TESTNET {self.strategy} mirror: {sym} was stopped out on the exchange")
+                self._done(key, "closed on the exchange before the paper exit (its testnet stop fired, or it was "
+                                "closed by hand); the paper position stays open")
+                self.notify(f"🔁 TESTNET {self.strategy} mirror: {sym} is no longer open on the testnet (stop fired "
+                            f"or closed by hand); the {self.strategy} paper position stays open and is not copied again")
         # 2. new entries
         busy = self.ticket.arb_symbols()
         for sym, p in want.items():
