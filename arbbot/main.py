@@ -114,6 +114,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--feed", choices=["ws", "rest", "sim"], help="override feed.mode (ws = streams with REST fallback)")
     p.add_argument("--interval", type=float, help="override feed.interval_s (seconds)")
     p.add_argument("--port", type=int, help="override server.port")
+    p.add_argument("--no-commands", action="store_true",
+                   help="Telegram alerts only, no commands (only one bot per Telegram token may poll for commands)")
     p.add_argument("--max-markets", type=int, help="override universe.max_markets")
     p.add_argument("--min-samples", type=int, help="override strategy.min_samples (shorter warm-up)")
     p.add_argument("--no-trade", action="store_true", help="monitor only: never open positions")
@@ -210,6 +212,8 @@ async def amain(args: argparse.Namespace) -> None:
         cfg.feed.interval_s = args.interval
     if args.port:
         cfg.server.port = args.port
+    if args.no_commands:
+        cfg.alerts.commands = False
     if args.max_markets:
         cfg.universe.max_markets = args.max_markets
     if args.min_samples:

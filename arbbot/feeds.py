@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import random
+import re
 import time
 
 import aiohttp
@@ -18,6 +19,9 @@ from .config import Config
 from .models import Market, Quote, SymbolFilter
 
 log = logging.getLogger("feed")
+# Binance's spot API refuses any other character in a symbol list (code -1100), and some perps now have names in Chinese
+# characters (e.g. 币安人生USDT): such a coin would stop every live start, so it is left out of the universe.
+PLAIN_SYMBOL = re.compile(r"[A-Z0-9\-._]{1,50}")
 
 
 def split_base(base: str) -> tuple[str, float]:
@@ -84,6 +88,8 @@ class RestFeed:
                 continue
             spot_base, mult = split_base(s["baseAsset"])
             spot_sym = spot_base + "USDT"
+            if not (PLAIN_SYMBOL.fullmatch(s["symbol"]) and PLAIN_SYMBOL.fullmatch(spot_sym)):
+                continue
             if spot_base in excluded or spot_sym not in spot_symbols:
                 continue
             cands.append((volume.get(s["symbol"], 0.0), s, spot_base, spot_sym, mult))

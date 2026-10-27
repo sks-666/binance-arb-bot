@@ -23,8 +23,10 @@ Open <http://127.0.0.1:8765>. Run the tests with `.venv/bin/python -m unittest t
 | `run.py --no-trade` | Monitor only. |
 | `run.py --live --testnet` | Real order flow against Binance **testnet**. Needs testnet API keys. |
 | `run.py --live` | Real money. Also needs `ARBBOT_LIVE_ACK` (see below). |
+| `Start Binance Bots.command` | Double-click (macOS): starts the testnet bot (port 8767, with the trend mirror), and the real-money mainnet bot (port 8765) only if you say yes, its read-only `--check` passes and you type `TRADE REAL MONEY`. Both start paused and keep running after the window closes. `Stop Binance Bots.command` stops them. |
 
-Useful flags: `--max-markets N`, `--interval S`, `--min-samples N`, `--port P`.
+Useful flags: `--max-markets N`, `--interval S`, `--min-samples N`, `--port P`, `--no-commands` (Telegram alerts
+without commands, for a second bot: only one bot per Telegram token may poll for commands).
 
 ## The strategy, and what it can honestly deliver
 

@@ -1,6 +1,8 @@
 """The revised core entry formula: robust/frozen baseline, discrete funding, exit cost, risk buffer,
 depth-based sizing, partial-fill handling, fee tiers and funding rules."""
 import asyncio
+import json
+import re
 import tempfile
 import unittest
 from decimal import ROUND_DOWN, Decimal
@@ -615,11 +617,17 @@ class FakeUniverseClient:
             return {"symbol": s, "contractType": "PERPETUAL", "status": "TRADING", "quoteAsset": "USDT",
                     "baseAsset": base, "filters": []}
         if path == "/fapi/v1/exchangeInfo":
-            return {"symbols": [sym("BTCUSDT", "BTC"), sym("FOOUSDT", "FOO"), sym("1000SHIBUSDT", "1000SHIB")]}
+            return {"symbols": [sym("BTCUSDT", "BTC"), sym("FOOUSDT", "FOO"), sym("1000SHIBUSDT", "1000SHIB"),
+                                sym("币安人生USDT", "币安人生")]}
         if path == "/fapi/v1/ticker/24hr":
-            return [{"symbol": s, "quoteVolume": "5e9"} for s in ("BTCUSDT", "FOOUSDT", "1000SHIBUSDT")]
+            return [{"symbol": s, "quoteVolume": "5e9"} for s in ("BTCUSDT", "FOOUSDT", "1000SHIBUSDT", "币安人生USDT")]
         if path == "/api/v3/ticker/bookTicker":
-            return [{"symbol": s, "bidPrice": "1", "askPrice": "1.1"} for s in ("BTCUSDT", "FOOUSDT", "SHIBUSDT")]
+            return [{"symbol": s, "bidPrice": "1", "askPrice": "1.1"}
+                    for s in ("BTCUSDT", "FOOUSDT", "SHIBUSDT", "币安人生USDT")]
+        if path == "/api/v3/exchangeInfo":                  # Binance answers -1100 to anything outside this pattern
+            if not re.fullmatch(r'\[("[A-Z0-9\-._]{1,50}"(,"[A-Z0-9\-._]{1,50}")*)?\]', params["symbols"]):
+                raise BinanceError(400, -1100, "Illegal characters found in parameter 'symbols'", path)
+            return {"symbols": [{"symbol": s, "filters": []} for s in json.loads(params["symbols"])]}
         if path == "/fapi/v1/fundingInfo":
             if not self.funding_ok:
                 raise BinanceError(500, None, "boom", path)
@@ -636,6 +644,11 @@ class FundingRuleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((btc.funding_interval_h, btc.funding_cap), (8.0, None))
         self.assertEqual((foo.funding_interval_h, foo.funding_cap, foo.funding_floor), (4.0, 0.025, -0.025))
         self.assertEqual((shib.mult, shib.spot_symbol), (1000.0, "SHIBUSDT"))  # contract multiplier handled
+
+    async def test_coins_with_non_ascii_names_are_left_out_so_a_live_start_works(self):
+        board = Board("rest")
+        await RestFeed(FakeUniverseClient(), board, Config(), with_filters=True).load_universe()
+        self.assertEqual(sorted(board.markets), ["1000SHIBUSDT", "BTCUSDT", "FOOUSDT"])
 
     async def test_missing_funding_info_falls_back_to_defaults(self):
         board = Board("rest")
