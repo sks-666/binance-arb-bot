@@ -29,6 +29,44 @@ Open <http://127.0.0.1:8765>. Run the tests with `.venv/bin/python -m unittest t
 Useful flags: `--max-markets N`, `--interval S`, `--min-samples N`, `--port P`, `--no-commands` (Telegram alerts
 without commands, for a second bot: only one bot per Telegram token may poll for commands).
 
+## Dashboards on your phone (same Wi-Fi)
+
+Both bots start with `--lan` from `Start Binance Bots.command`, so their dashboards also open on a phone that is on the
+**same Wi-Fi / router** as this Mac.
+
+| Bot | On this Mac | On your phone |
+|---|---|---|
+| MAINNET (real money) | http://127.0.0.1:8765 | `http://<Mac's Wi-Fi address>:8765/?key=<mainnet key>` |
+| TESTNET (demo, swing kit) | http://127.0.0.1:8767 | `http://<Mac's Wi-Fi address>:8767/?key=<testnet key>` |
+
+The Mac's Wi-Fi address was `192.168.100.9` when this was written; it can change after a router restart.
+
+**Get your phone links** (they are printed with the key filled in, every time the bots start):
+
+```bash
+grep -h phone: ~/Documents/binance-arb-bot/logs/mainnet-bot.out ~/Documents/binance-arb-bot/logs/testnet-bot.out
+```
+
+The `Start Binance Bots.command` window shows the same links ("on your phone (same Wi-Fi): …"). The Mac's current
+Wi-Fi address on its own: `ipconfig getifaddr en0`.
+
+**First time on the phone:** send the link to the phone (AirDrop, Notes), open it in Safari or Chrome, then bookmark the
+page. The phone remembers the key (a cookie for 180 days), so afterwards `http://192.168.100.9:8767` alone works.
+
+**The key, and why it is not written here.** The dashboard can pause, flatten and, on mainnet, place REAL-MONEY orders,
+so every device other than this Mac needs the key; without it, it only gets a "This dashboard is locked" page. The
+keys live only on this Mac, in `data/lan-key-8765.txt` (mainnet) and `data/lan-key-8767.txt` (testnet); `data/` is
+never committed, so they are not in this README or on GitHub. Do not share a phone link: anyone with it can use that
+dashboard while on your Wi-Fi.
+
+* **Revoke access** (lost phone, shared link): delete `data/lan-key-8765.txt` and/or `data/lan-key-8767.txt`, restart
+  the bots (Stop, then Start); new keys are made and the old links and cookies stop working.
+* **The phone cannot connect:** check it is on the same Wi-Fi (not mobile data); NordVPN can block local network
+  traffic, so allow LAN / local network access in its settings or turn it off; after a router restart the address may
+  have changed, so get the links again with the command above.
+* **Without the launcher:** add `--lan` to any `run.py` dashboard command; without `--lan` the dashboard stays on this
+  Mac only (127.0.0.1).
+
 ## The strategy, and what it can honestly deliver
 
 ### Core entry formula (all in basis points)
