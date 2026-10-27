@@ -431,12 +431,13 @@ class Engine:
             u = unrealized_usd(pos, m, cfg.fees) if m else 0.0
             unreal += u
             positions.append({
-                "sym": sym, "held_s": now - pos.opened_at, "notional": pos.notional, "entry_basis": pos.entry_basis_bps,
+                "sym": sym, "opened_at": pos.opened_at, "held_s": now - pos.opened_at, "notional": pos.notional,
+                "entry_basis": pos.entry_basis_bps,
                 "basis_now": sig.basis_out_bps if sig else 0.0, "z": sig.z if sig else 0.0, "unreal": u,
                 "funding": pos.funding_acc, "live": pos.live, "manual": pos.manual,
             })
         trades = [
-            {"sym": t.symbol, "closed_at": t.closed_at, "pnl": t.pnl_usd, "bps": t.pnl_bps, "reason": t.reason,
+            {"sym": t.symbol, "opened_at": t.opened_at, "closed_at": t.closed_at, "pnl": t.pnl_usd, "bps": t.pnl_bps, "reason": t.reason,
              "held_s": t.closed_at - t.opened_at, "fees": t.fees_usd}
             for t in reversed(list(pf.closed)[-25:])
         ]

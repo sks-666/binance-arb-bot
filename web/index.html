@@ -229,11 +229,11 @@
     <div>
       <section class="card" aria-labelledby="h-pos">
         <div class="card-h"><h2 id="h-pos">Open positions</h2><span class="hint" id="pos-hint"></span></div>
-        <div class="scroll mid"><table><thead><tr><th>Market</th><th>Held</th><th>Size</th><th>Entry</th><th>Now</th><th>Unreal.</th></tr></thead><tbody id="pos-body"></tbody></table></div>
+        <div class="scroll mid"><table><thead><tr><th>Market</th><th>Opened</th><th>Held</th><th>Size</th><th>Entry</th><th>Now</th><th>Unreal.</th></tr></thead><tbody id="pos-body"></tbody></table></div>
       </section>
       <section class="card" aria-labelledby="h-tr">
         <div class="card-h"><h2 id="h-tr">Recent trades</h2></div>
-        <div class="scroll mid"><table><thead><tr><th>Market</th><th>P&amp;L</th><th>bps</th><th>Held</th><th>Reason</th></tr></thead><tbody id="tr-body"></tbody></table></div>
+        <div class="scroll mid"><table><thead><tr><th>Market</th><th>Closed</th><th>P&amp;L</th><th>bps</th><th>Held</th><th>Reason</th></tr></thead><tbody id="tr-body"></tbody></table></div>
       </section>
       <section class="card" aria-labelledby="h-ev">
         <div class="card-h"><h2 id="h-ev">Event log</h2></div>
@@ -251,9 +251,9 @@
       <div class="kpis" id="sw-accts"></div>
       <div class="sw-fund" id="sw-fund" hidden></div>
       <div class="sw-grid">
-        <div><h3>Open swing positions</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Entry</th><th>Now</th><th>Stop</th><th>Target</th><th>P&amp;L</th></tr></thead><tbody id="sw-open"></tbody></table></div></div>
+        <div><h3>Open swing positions</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Opened</th><th>Entry</th><th>Now</th><th>Stop</th><th>Target</th><th>P&amp;L</th></tr></thead><tbody id="sw-open"></tbody></table></div></div>
         <div><h3>Waiting for the next candle open</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Near</th><th>Stop</th><th>Target</th><th class="why">Why</th></tr></thead><tbody id="sw-setups"></tbody></table></div></div>
-        <div><h3>Recent swing trades</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>In → out</th><th>P&amp;L</th><th>R</th><th>Out</th></tr></thead><tbody id="sw-trades"></tbody></table></div></div>
+        <div><h3>Recent swing trades</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Opened → closed</th><th>In → out</th><th>P&amp;L</th><th>R</th><th>Out</th></tr></thead><tbody id="sw-trades"></tbody></table></div></div>
       </div>
       <div class="sw-note" id="sw-note"></div>
     </div>
@@ -474,14 +474,14 @@ function renderSwing() {
     `<div class="s"><span class="${cls(a.return_pct)}">${sg(a.return_pct, 2)}%</span> · ${a.open} open · ${a.closed} closed${a.closed ? ` · ${a.wins}W · ${sg(a.avg_r, 2)}R avg` : ""}</div></div>`
   ).join("") : `<div class="empty">Loading the first candles…</div>`;
   $("sw-open").innerHTML = w.open.length ? w.open.map(p =>
-    `<tr title="${esc(p.reason)}"><td class="sym">${esc(p.strategy)}</td><td class="sym">${coin(p.symbol)}</td><td>${side(p.side)}</td><td class="n">${px(p.entry)}</td><td class="n">${px(p.mark)}</td><td class="n">${px(p.stop)}</td><td class="n">${px(p.target)}</td><td class="n ${cls(p.pnl)}">${money(p.pnl)} (${sg(p.r, 2)}R)</td></tr>`
-  ).join("") : `<tr><td colspan="8" class="empty">No open swing positions.</td></tr>`;
+    `<tr title="${esc(p.reason)}"><td class="sym">${esc(p.strategy)}</td><td class="sym">${coin(p.symbol)}</td><td>${side(p.side)}</td><td class="n mut">${dtm(p.entry_ts)}</td><td class="n">${px(p.entry)}</td><td class="n">${px(p.mark)}</td><td class="n">${px(p.stop)}</td><td class="n">${px(p.target)}</td><td class="n ${cls(p.pnl)}">${money(p.pnl)} (${sg(p.r, 2)}R)</td></tr>`
+  ).join("") : `<tr><td colspan="9" class="empty">No open swing positions.</td></tr>`;
   $("sw-setups").innerHTML = w.setups.length ? w.setups.map(s =>
     `<tr><td class="sym">${esc(s.strategy)}</td><td class="sym">${coin(s.symbol)}</td><td>${side(s.side)}</td><td class="n">${px(s.near)}</td><td class="n">${px(s.stop)}</td><td class="n">${px(s.target)}</td><td class="why">${esc(s.reason)}</td></tr>`
   ).join("") : `<tr><td colspan="7" class="empty">No setups waiting. That is the usual answer: these strategies wait for a pattern.</td></tr>`;
   $("sw-trades").innerHTML = w.trades.length ? w.trades.map(t =>
-    `<tr title="${esc(new Date(t.closed_at).toISOString().slice(0, 16).replace("T", " "))} UTC"><td class="sym">${esc(t.strategy)}</td><td class="sym">${coin(t.symbol)}</td><td>${side(t.side)}</td><td class="n">${px(t.entry)} → ${px(t.exit)}</td><td class="n ${cls(t.pnl)}">${money(t.pnl)}</td><td class="n ${cls(t.r)}">${sg(t.r, 2)}R</td><td class="mut">${esc(t.reason)}</td></tr>`
-  ).join("") : `<tr><td colspan="7" class="empty">No closed swing trades yet.</td></tr>`;
+    `<tr><td class="sym">${esc(t.strategy)}</td><td class="sym">${coin(t.symbol)}</td><td>${side(t.side)}</td><td class="n mut">${dtm(t.opened_at)} → ${dtm(t.closed_at)}</td><td class="n">${px(t.entry)} → ${px(t.exit)}</td><td class="n ${cls(t.pnl)}">${money(t.pnl)}</td><td class="n ${cls(t.r)}">${sg(t.r, 2)}R</td><td class="mut">${esc(t.reason)}</td></tr>`
+  ).join("") : `<tr><td colspan="8" class="empty">No closed swing trades yet.</td></tr>`;
   renderFunds(w);
   renderPower(w);
   if (w.enabled === false) $("sw-hint").textContent = `⏸ OFF since ${new Date(w.off_since).toISOString().slice(0, 16).replace("T", " ")} UTC · ` + $("sw-hint").textContent;
@@ -532,12 +532,12 @@ function renderAll() {
 
   $("pos-hint").textContent = s.open ? `${s.open} open` : "";
   $("pos-body").innerHTML = snap.positions.length ? snap.positions.map(p =>
-    `<tr><td class="sym">${esc(p.sym)}</td><td class="n">${dur(p.held_s)}</td><td class="n">$${p.notional.toFixed(0)}</td><td class="n">${sg(p.entry_basis, 1)}</td><td class="n">${sg(p.basis_now, 1)}</td><td class="n ${cls(p.unreal)}">${money(p.unreal)}</td></tr>`
-  ).join("") : `<tr><td colspan="6" class="empty">No open positions.</td></tr>`;
+    `<tr><td class="sym">${esc(p.sym)}</td><td class="n mut">${dtm((p.opened_at || Date.now() / 1000 - p.held_s) * 1000)}</td><td class="n">${dur(p.held_s)}</td><td class="n">$${p.notional.toFixed(0)}</td><td class="n">${sg(p.entry_basis, 1)}</td><td class="n">${sg(p.basis_now, 1)}</td><td class="n ${cls(p.unreal)}">${money(p.unreal)}</td></tr>`
+  ).join("") : `<tr><td colspan="7" class="empty">No open positions.</td></tr>`;
 
   $("tr-body").innerHTML = snap.trades.length ? snap.trades.map(t =>
-    `<tr><td class="sym">${esc(t.sym)}</td><td class="n ${cls(t.pnl)}">${money(t.pnl)}</td><td class="n ${cls(t.bps)}">${sg(t.bps, 1)}</td><td class="n">${dur(t.held_s)}</td><td class="mut">${esc(t.reason)}</td></tr>`
-  ).join("") : `<tr><td colspan="5" class="empty">No closed trades yet.</td></tr>`;
+    `<tr title="opened ${dtm((t.opened_at || t.closed_at - t.held_s) * 1000)}"><td class="sym">${esc(t.sym)}</td><td class="n mut">${dtm(t.closed_at * 1000)}</td><td class="n ${cls(t.pnl)}">${money(t.pnl)}</td><td class="n ${cls(t.bps)}">${sg(t.bps, 1)}</td><td class="n">${dur(t.held_s)}</td><td class="mut">${esc(t.reason)}</td></tr>`
+  ).join("") : `<tr><td colspan="6" class="empty">No closed trades yet.</td></tr>`;
 
   $("ev-body").innerHTML = snap.events.length ? snap.events.map(e =>
     `<div class="ev ${esc(e.lvl)}"><time>${new Date(e.ts * 1000).toLocaleTimeString([], { hour12: false })}</time><span>${esc(e.msg)}</span></div>`
@@ -604,6 +604,11 @@ try {
 function mkSave() { try { localStorage.setItem("mk", JSON.stringify({ sym: MK.sym, iv: MK.iv, tab: MK.tab, low: MK.low, mv: MK.mv, spacing: MK.spacing })); } catch (_) { } }
 const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function compact(v) { const a = Math.abs(v); return a >= 1e9 ? (v / 1e9).toFixed(2) + "B" : a >= 1e6 ? (v / 1e6).toFixed(2) + "M" : a >= 1e3 ? (v / 1e3).toFixed(2) + "K" : v.toFixed(2); }
+function dtm(ms) {   // a trade time as local date and time: 2026-10-27 14:32
+  if (!ms) return "–";
+  const d = new Date(ms), p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 function fmtP(p) { return p == null ? "–" : p.toLocaleString(undefined, { minimumFractionDigits: MK.dp, maximumFractionDigits: MK.dp }); }
 function learnDp(prices) { let d = 0; for (const p of prices.slice(-60)) d = Math.max(d, (String(p).split(".")[1] || "").length); MK.dp = Math.min(8, d); }
 function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / p; return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * p; }
