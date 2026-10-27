@@ -114,6 +114,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--feed", choices=["ws", "rest", "sim"], help="override feed.mode (ws = streams with REST fallback)")
     p.add_argument("--interval", type=float, help="override feed.interval_s (seconds)")
     p.add_argument("--port", type=int, help="override server.port")
+    p.add_argument("--lan", action="store_true",
+                   help="also serve the dashboard to phones on your home network (same router); other devices need the "
+                        "private key in the phone link printed at start (data/lan-key-<port>.txt)")
     p.add_argument("--no-commands", action="store_true",
                    help="Telegram alerts only, no commands (only one bot per Telegram token may poll for commands)")
     p.add_argument("--max-markets", type=int, help="override universe.max_markets")
@@ -404,7 +407,12 @@ async def amain(args: argparse.Namespace) -> None:
                 sys.exit(f"--swing: {e}")
             handler.swing = engine.swing = swing
         listener = TelegramListener(cfg.alerts, alerts, handler, poll_timeout_s=cfg.alerts.poll_timeout_s)
-        dash = Dashboard(engine, cfg, ROOT / "web", market=MarketData(client), paper=ticket)
+        phone_key = None
+        if args.lan and not args.hosted:      # home network too; the key keeps other devices out
+            from .server import lan_key
+            phone_key = lan_key(ROOT / "data" / f"lan-key-{cfg.server.port}.txt")
+            cfg.server.host = "0.0.0.0"
+        dash = Dashboard(engine, cfg, ROOT / "web", market=MarketData(client), paper=ticket, lan_key=phone_key)
         if args.hosted:  # public interface: the READ-ONLY page behind a login, never the dashboard with its controls
             hosted_password, hosted_user = settings_from_env()
             runner = web.AppRunner(make_hosted_app(engine, ROOT / "vercel-dashboard" / "views" / "dashboard.html",
@@ -430,7 +438,12 @@ async def amain(args: argparse.Namespace) -> None:
                             "answers on %s:%d | state: %s", seen, MIN_PASSWORD, host, port, db_path.name)
         else:
             log.info("dashboard: http://%s:%d   | state: %s | kill switch: touch %s",
-                     host, port, db_path.name, cfg.risk.kill_file)
+                     "127.0.0.1" if host == "0.0.0.0" else host, port, db_path.name, cfg.risk.kill_file)
+            if phone_key:
+                from .server import lan_addresses
+                for ip in lan_addresses() or ["<this Mac's Wi-Fi address>"]:
+                    log.info("phone: http://%s:%d/?key=%s   (same Wi-Fi; open it once, the phone remembers the key)",
+                             ip, port, phone_key)
         if portfolio.open:
             log.warning("resuming with %d open position(s): %s", len(portfolio.open), ", ".join(portfolio.open))
         if cfg.feed.mode == "sim":

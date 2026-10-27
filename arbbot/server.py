@@ -5,9 +5,12 @@ must match the bound address, and control endpoints need the per-run token embed
 """
 import asyncio
 import hmac
+import ipaddress
 import json
 import logging
+import os
 import secrets
+import subprocess
 from pathlib import Path
 
 from aiohttp import WSMsgType, web
@@ -18,10 +21,62 @@ from .engine import Engine
 
 log = logging.getLogger("server")
 ACTIONS = ("halt", "resume", "flatten")
+LOOPBACK = ("127.0.0.1", "::1")
+LAN_COOKIE = "arb_lan_key"
+
+
+def lan_host_ok(host: str) -> bool:
+    """A Host header a phone on the home network sends: a private IP address or this Mac's .local name. (DNS-rebinding
+    attacks need a domain name the attacker controls, so private IP literals and .local cannot carry one.)"""
+    name = host.rsplit(":", 1)[0].strip("[]")
+    if name.endswith(".local"):
+        return True
+    try:
+        return ipaddress.ip_address(name).is_private
+    except ValueError:
+        return False
+
+
+def lan_key(path: Path) -> str:
+    """The key other devices need (--lan). Kept in data/ so a bookmarked phone link survives restarts."""
+    path = Path(path)
+    try:
+        key = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        key = ""
+    if len(key) < 16:
+        key = secrets.token_urlsafe(16)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(key, encoding="utf-8")
+        os.chmod(path, 0o600)
+    return key
+
+
+def lan_addresses() -> list[str]:
+    """This Mac's addresses on the home network (private IPv4 on real interfaces; VPN tunnels and loopback left out)."""
+    try:
+        out = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    found, iface = [], ""
+    for line in out.splitlines():
+        if line and not line[0].isspace():
+            iface = line.split(":", 1)[0]
+        elif line.strip().startswith("inet ") and not iface.startswith(("lo", "utun", "bridge", "awdl", "llw")):
+            ip = line.split()[1]
+            if ipaddress.ip_address(ip).is_private:
+                found.append(ip)
+    return found
+
+
+LOCKED = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Locked</title><body style="font:16px system-ui;padding:24px;max-width:520px;margin:auto">
+<h2>This dashboard is locked</h2><p>Open it with the phone link the bot printed when it started (it ends in
+<code>?key=…</code>). Run <code>Start Binance Bots.command</code> on the Mac to see it again.</p></body>"""
 
 
 class Dashboard:
-    def __init__(self, engine: Engine, cfg: Config, web_dir: Path, market=None, paper=None):
+    def __init__(self, engine: Engine, cfg: Config, web_dir: Path, market=None, paper=None, lan_key: str | None = None):
         self.engine = engine
         self.market = market                      # an arbbot.market.MarketData for the chart / order book panel, or None
         self.paper = paper                        # an arbbot.paper_futures.PaperFutures for the order ticket, or None
@@ -33,15 +88,31 @@ class Dashboard:
         self.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
         if cfg.server.host not in ("127.0.0.1", "localhost", "::1"):
             self.allowed_hosts.add(f"{cfg.server.host}:{port}")
+        # --lan: other devices on the home network may open the page, but only with this key (the page carries the
+        # control token, and on mainnet the ticket trades real money). This Mac itself never needs it.
+        self.lan_key = lan_key
+
+    def is_local(self, request: web.Request) -> bool:
+        return request.remote in LOOPBACK
 
     def make_app(self) -> web.Application:
         @web.middleware
         async def guard(request: web.Request, handler):
-            if request.host not in self.allowed_hosts:
+            lan_host = (bool(self.lan_key) and request.host.endswith(f":{self.cfg.server.port}")
+                        and lan_host_ok(request.host))
+            if request.host not in self.allowed_hosts and not lan_host:
                 raise web.HTTPForbidden(text="bad host")
             origin = request.headers.get("Origin")
             if origin and origin != f"http://{request.host}":
                 raise web.HTTPForbidden(text="bad origin")
+            if self.lan_key and not self.is_local(request):
+                if hmac.compare_digest(request.query.get("key", ""), self.lan_key):
+                    resp = web.HTTPFound("/")          # remember the key, then drop it from the address bar
+                    resp.set_cookie(LAN_COOKIE, self.lan_key, max_age=180 * 86_400, httponly=True, samesite="Strict")
+                    raise resp
+                if not hmac.compare_digest(request.cookies.get(LAN_COOKIE, ""), self.lan_key):
+                    log.warning("locked out %s (no or wrong LAN key) on %s", request.remote, request.path)
+                    return web.Response(text=LOCKED, content_type="text/html", status=401)
             return await handler(request)
 
         app = web.Application(middlewares=[guard])

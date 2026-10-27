@@ -11,6 +11,8 @@
 # The mainnet dashboard's order ticket trades REAL money (--real-ticket): at most REAL_TICKET_MAX_USD per order, each
 # order asks you to confirm, and pausing the arbitrage bot does NOT pause it.
 # Only one bot may answer Telegram commands: the mainnet bot when it runs, otherwise the testnet bot.
+# --lan: both dashboards also open on your phone (same Wi-Fi) through the "on your phone" links printed below; the
+# link carries a private key (data/lan-key-<port>.txt), and any device without it only sees a "locked" page.
 cd "$(dirname "$0")" || exit 1
 PY=.venv/bin/python
 REAL_TICKET_MAX_USD=100               # largest real-money order from the mainnet dashboard's ticket, in USDT
@@ -24,6 +26,8 @@ wait_for() {   # $1 = log file, $2 = name, $3 = dashboard url, $4 = process patt
     for _ in $(seq 1 60); do
         if grep -q "dashboard:" "$1" 2>/dev/null; then
             echo "  $2 is up: $3   (log: $1)"
+            sleep 1
+            grep -h "phone:" "$1" | sed 's/.*phone: /    on your phone (same Wi-Fi): /'
             open "$3"
             return 0
         fi
@@ -40,7 +44,7 @@ wait_for() {   # $1 = log file, $2 = name, $3 = dashboard url, $4 = process patt
 start_testnet() {   # $1 = extra flags
     : > logs/testnet-bot.out           # so wait_for never reads the previous run's lines
     DASHBOARD_PUSH_URL= DASHBOARD_PUSH_TOKEN= nohup "$PY" run.py --live --testnet --config config.testnet.toml \
-        --min-samples 20 --swing --swing-mirror trend,swing,smc --swing-mirror-copy-open $1 > logs/testnet-bot.out 2>&1 &
+        --min-samples 20 --swing --swing-mirror trend,swing,smc --swing-mirror-copy-open --lan $1 > logs/testnet-bot.out 2>&1 &
     disown
 }
 
@@ -104,7 +108,7 @@ if [[ "$MAIN" == "start" ]]; then
     echo "Starting the MAINNET bot (monitor only; REAL-MONEY order ticket)..."
     : > logs/mainnet-bot.out
     ARBBOT_LIVE_ACK=I_UNDERSTAND_THIS_TRADES_REAL_MONEY DASHBOARD_PUSH_URL= DASHBOARD_PUSH_TOKEN= \
-        nohup "$PY" run.py --live --config config.toml --no-trade --real-ticket --real-ticket-max-usd "$REAL_TICKET_MAX_USD" \
+        nohup "$PY" run.py --live --config config.toml --no-trade --real-ticket --real-ticket-max-usd "$REAL_TICKET_MAX_USD" --lan \
         > logs/mainnet-bot.out 2>&1 &
     disown
     wait_for logs/mainnet-bot.out "MAINNET bot" http://127.0.0.1:8765 "$MAINNET"
