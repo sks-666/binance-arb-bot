@@ -381,6 +381,7 @@ function renderAll() {
   const mode = $("b-mode");
   mode.textContent = snap.mode === "live" ? `LIVE · ${snap.env.toUpperCase()}` : "PAPER";
   mode.className = "badge " + snap.mode;
+  document.title = `${mode.textContent} · Basis Arb Monitor`;   // so each browser tab says which bot it is
   $("b-sim").hidden = f.kind !== "sim";
   $("dot").className = "dot " + (f.ok ? "ok" : "bad");
   const fb = f.configured === "ws" && f.kind === "rest";
