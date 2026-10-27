@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 
 log = logging.getLogger("paper-futures")
-SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,20}USDT$")
+SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,20}USDT$")   # one letter is real: TUSDT, GUSDT
 MAKER_BPS = 2.0                     # Binance USD-M regular tier: maker 0.02%, taker 0.05% (taker comes from config.toml)
 MMR = 0.005                         # maintenance margin rate
 MIN_NOTIONAL = 5.0

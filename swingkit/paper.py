@@ -137,6 +137,7 @@ class SwingRunner:
     def __init__(self, cfg: PaperCfg, client, journal: Journal, notify: Callable[[str], None] | None = None,
                  clock: Callable[[], float] = time.time):
         self.cfg, self.client, self.journal, self.clock = cfg, client, journal, clock
+        self.mirrors: list = []          # arbbot SwingMirrors copying these accounts to the futures testnet, if any
         self.notify = notify or (lambda text: None)
         self.risk, self.costs = RiskCfg(risk_pct=cfg.risk_pct), CostCfg()
         self.bar_ms = INTERVAL_MS[cfg.interval]
@@ -379,7 +380,8 @@ class SwingRunner:
         base = self._snap if self._snap is not None else dict(self._meta(), loading=True, accounts=[], open=[],
                                                               setups=[], trades=[])
         return dict(base, unavailable=dict(self.unavailable), error=self.last_error,
-                    checked_age_s=(self.clock() - self.checked_at) if self.checked_at else None)
+                    checked_age_s=(self.clock() - self.checked_at) if self.checked_at else None,
+                    demo=[m.view() for m in self.mirrors] or None)
 
     # ---- text for Telegram / console -----------------------------------------------------------
     def _loading(self) -> str | None:

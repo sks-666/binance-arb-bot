@@ -40,7 +40,7 @@ wait_for() {   # $1 = log file, $2 = name, $3 = dashboard url, $4 = process patt
 start_testnet() {   # $1 = extra flags
     : > logs/testnet-bot.out           # so wait_for never reads the previous run's lines
     DASHBOARD_PUSH_URL= DASHBOARD_PUSH_TOKEN= nohup "$PY" run.py --live --testnet --config config.testnet.toml \
-        --min-samples 20 --swing --swing-mirror trend,swing,smc $1 > logs/testnet-bot.out 2>&1 &
+        --min-samples 20 --swing --swing-mirror trend,swing,smc --swing-mirror-copy-open $1 > logs/testnet-bot.out 2>&1 &
     disown
 }
 

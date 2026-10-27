@@ -29,6 +29,26 @@ class FakeTicket:
         self.arb = set()
         self.orders, self.closed, self.stops = [], [], []
         self.refuse = None
+        self.log: list[dict] = []          # Binance-style fills (userTrades)
+        self.close_pnl, self.fills_down = 0.0, False
+        self.market_max: dict[str, float] = {}
+        self.binance_refuses: dict[str, Exception] = {}
+
+    async def max_market_qty(self, sym):
+        return self.market_max.get(sym)
+
+    def _fill(self, sym, side, qty, realized=0.0):
+        self.log.append(dict(symbol=sym, side=side.upper(), price="100", qty=str(abs(qty)), realizedPnl=str(realized),
+                             commission="0.05", commissionAsset="USDT", time=START))
+
+    def position_info(self, sym):
+        amt = self.position(sym)
+        return dict(amount=amt, entry_px=100.0, mark=101.0, pnl=amt * 1.0) if amt else {}
+
+    async def fills(self, sym, start_ms, end_ms):
+        if self.fills_down:
+            raise RuntimeError("rate limited")
+        return [f for f in self.log if f["symbol"] == sym and start_ms <= f["time"] <= end_ms]
 
     def arb_symbols(self):
         return set(self.arb)
@@ -42,12 +62,17 @@ class FakeTicket:
     async def place_order(self, req):
         if self.refuse:
             raise ValueError(self.refuse)
+        if req["symbol"] in self.binance_refuses:
+            raise self.binance_refuses[req["symbol"]]
         self.orders.append(req)
-        self.positions[req["symbol"]] = req["qty"] * (1 if req["side"] == "buy" else -1)
-        return {"status": "filled", "qty": req["qty"]}
+        self.positions[req["symbol"]] = self.positions.get(req["symbol"], 0.0) + req["qty"] * (1 if req["side"] == "buy" else -1)
+        self._fill(req["symbol"], req["side"], req["qty"])
+        return {"status": "filled", "qty": req["qty"], "filled_px": 100.0}
 
     async def close_position(self, sym):
         self.closed.append(sym)
+        amt = self.positions[sym]
+        self._fill(sym, "sell" if amt > 0 else "buy", amt, self.close_pnl)
         self.positions[sym] = 0.0
         return {"status": "filled"}
 
@@ -188,6 +213,97 @@ class SeveralAccountsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((path.name, (d / "swing-mirror-testnet.json").exists()), ("swing-mirror-testnet-trend.json", False))
         self.assertEqual(SwingMirror(self.runner, self.ticket, "trend", path=path).s["done"], {"SOLUSDT:5": "x"})
         self.assertEqual(state_path(d, "swing").name, "swing-mirror-testnet-swing.json")
+
+
+class DemoResultTests(unittest.IsolatedAsyncioTestCase):
+    """The testnet copies are the real record: their results come from Binance's fills, not from the paper replay."""
+    def setUp(self):
+        self.runner, self.ticket = FakeRunner(), FakeTicket()
+        self.path = Path(tempfile.mkdtemp()) / "mirror.json"
+
+    def mirror(self, **kw):
+        return SwingMirror(self.runner, self.ticket, "trend", 10_000.0, self.path, clock=lambda: START / 1000, **kw)
+
+    async def test_positions_held_before_mirroring_are_copied_when_asked(self):
+        self.runner.hold(pos("BTCUSDT", entry_ts=START - 1))
+        await self.mirror().step()
+        self.assertEqual(self.ticket.orders, [])                             # the default: only new entries
+        self.assertIn("before mirroring started", self.mirror().view()["status"][f"BTCUSDT:{START - 1}"])
+        await self.mirror(copy_existing=True).step()
+        self.assertEqual([o["symbol"] for o in self.ticket.orders], ["BTCUSDT"])
+
+    async def test_a_paper_exit_closes_the_copy_and_records_the_real_result(self):
+        m = self.mirror()
+        self.runner.hold(pos())
+        await m.step()
+        v = m.view()
+        self.assertEqual((v["status"][f"SOLUSDT:{START + 1}"], v["stats"]["open"], v["stats"]["unrealized"]),
+                         ("on demo", 1, 5.0))
+        self.ticket.close_pnl = 12.5
+        self.runner.hold()
+        await m.step()
+        c = m.s["copies"][0]
+        self.assertEqual((c["account"], c["symbol"], c["side"], c["why"], c["entry"], c["exit"]),
+                         ("trend", "SOLUSDT", "buy", "paper exit", 100.0, 100.0))
+        self.assertAlmostEqual(c["pnl"], 12.5 - 0.10)                        # Binance's realised P&L minus both fees
+        s = m.stats()
+        self.assertEqual((s["open"], s["closed"], s["wins"], s["losses"], s["unsettled"]), (0, 1, 1, 0, 0))
+        self.assertAlmostEqual(s["realized"], 12.4)
+        self.assertAlmostEqual(s["today"], 12.4)
+
+    async def test_a_copy_closed_on_the_exchange_is_settled_from_its_fills(self):
+        m = self.mirror()
+        self.runner.hold(pos())
+        await m.step()
+        self.ticket._fill("SOLUSDT", "sell", 5.0, -30.0)                    # the testnet stop fired
+        self.ticket.positions["SOLUSDT"] = 0.0
+        await m.step()
+        c = m.s["copies"][0]
+        self.assertEqual(c["why"], "stop or by hand")
+        self.assertAlmostEqual(c["pnl"], -30.10)
+        self.assertEqual((m.stats()["wins"], m.stats()["losses"]), (0, 1))
+
+    async def test_a_result_binance_cannot_give_yet_is_asked_again(self):
+        m = self.mirror()
+        self.runner.hold(pos())
+        await m.step()
+        self.ticket.fills_down, self.ticket.close_pnl = True, 3.0
+        self.runner.hold()
+        await m.step()
+        self.assertIsNone(m.s["copies"][0]["pnl"])
+        self.assertEqual(m.stats()["unsettled"], 1)
+        self.ticket.fills_down = False
+        await m.step()
+        self.assertAlmostEqual(m.s["copies"][0]["pnl"], 2.9)
+        self.assertEqual(self.mirror().s["copies"][0]["pnl"], m.s["copies"][0]["pnl"])   # saved across a restart
+
+
+class BigAndRefusedOrderTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.runner, self.ticket = FakeRunner(), FakeTicket()
+        self.m = SwingMirror(self.runner, self.ticket, "trend", 10_000.0, Path(tempfile.mkdtemp()) / "m.json",
+                             clock=lambda: START / 1000)
+
+    async def test_a_copy_above_binance_market_maximum_goes_in_pieces_with_one_stop(self):
+        self.ticket.market_max["SOLUSDT"] = 2.0                           # the copy is 0.05 x 100 = 5 SOL
+        self.runner.hold(pos())
+        await self.m.step()
+        self.assertEqual([(o["qty"], o.get("sl")) for o in self.ticket.orders], [(2.0, 170.0), (2.0, None), (1.0, None)])
+        self.assertAlmostEqual(self.m.s["open"]["SOLUSDT"]["qty"], 5.0)
+        self.assertAlmostEqual(self.ticket.position("SOLUSDT"), 5.0)
+
+    async def test_binance_refusing_one_coin_does_not_stop_the_others(self):
+        from arbbot.binance_client import BinanceError, NotSentError
+        self.ticket.binance_refuses["BEAMXUSDT"] = BinanceError(400, -4005, "Quantity greater than max quantity.", "/fapi/v1/order")
+        self.runner.hold(pos("BEAMXUSDT"), pos("SOLUSDT"))
+        await self.m.step()
+        self.assertEqual([o["symbol"] for o in self.ticket.orders], ["SOLUSDT"])
+        self.assertIn("max quantity", self.m.s["done"][f"BEAMXUSDT:{START + 1}"])
+        self.ticket.binance_refuses["ETHUSDT"] = NotSentError(418, None, "banned", "/fapi/v1/order")
+        self.runner.hold(pos("ETHUSDT"), pos("SOLUSDT"))
+        with self.assertRaises(NotSentError):                              # a rate-limit pause is retried, not skipped
+            await self.m.step()
+        self.assertNotIn(f"ETHUSDT:{START + 1}", self.m.s["done"])
 
 
 class MirrorFlagTests(unittest.TestCase):

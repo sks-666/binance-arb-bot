@@ -30,7 +30,7 @@ from .binance_client import BinanceError
 from .paper_futures import walk_book
 
 log = logging.getLogger("testnet-ticket")
-SYMBOL_RE = re.compile(r"^[A-Z0-9]{2,20}USDT$")
+SYMBOL_RE = re.compile(r"^[A-Z0-9]{1,20}USDT$")   # one letter is real: TUSDT, GUSDT
 TYPES = ("limit", "market", "stop_limit", "stop_market")
 TIFS = ("GTC", "IOC", "FOK")
 STATUS = {"NEW": "new", "PARTIALLY_FILLED": "new", "FILLED": "filled", "CANCELED": "canceled", "EXPIRED": "expired",
@@ -129,7 +129,14 @@ class TestnetTicket:
                 tick=Decimal(f.get("PRICE_FILTER", {}).get("tickSize", "0.01")),
                 step=Decimal(f.get("LOT_SIZE", {}).get("stepSize", "0.001")),
                 min_qty=Decimal(f.get("LOT_SIZE", {}).get("minQty", "0")),
+                market_max=Decimal(f.get("MARKET_LOT_SIZE", {}).get("maxQty", "0")) or None,
                 min_notional=float(f.get("MIN_NOTIONAL", {}).get("notional", 5)))
+
+    async def max_market_qty(self, symbol: str) -> float | None:
+        """The largest quantity Binance accepts in ONE market order on this coin (None when it sets no limit)."""
+        await self._ensure_filters()
+        mx = self.filters.get(symbol, {}).get("market_max")
+        return float(mx) if mx else None
 
     def _qty(self, sym: str, q: float) -> Decimal:
         step = self.filters[sym]["step"]
@@ -209,6 +216,9 @@ class TestnetTicket:
             f = self.filters[sym]
             if qd <= 0 or qd < f["min_qty"]:
                 raise ValueError(f"size is below the minimum quantity for {sym} ({_fmt(f['min_qty'])})")
+            if typ == "market" and f.get("market_max") and qd > f["market_max"]:
+                raise ValueError(f"{_fmt(qd)} {sym} is above the largest market order Binance accepts on it "
+                                 f"({_fmt(f['market_max'])}); split it into smaller orders")
             if not reduce_only and float(qd) * ref < f["min_notional"]:
                 raise ValueError(f"order value must be at least {f['min_notional']:g} USDT on {sym}")
             if self.max_order_usd and not reduce_only and float(qd) * ref > self.max_order_usd:
@@ -325,6 +335,20 @@ class TestnetTicket:
         """Signed position amount on this coin as of the last refresh (0 when flat)."""
         return next((float(p["positionAmt"]) for p in self.risk if p["symbol"] == symbol), 0.0)
 
+    def position_info(self, symbol: str) -> dict:
+        """Entry, mark and unrealised P&L of the open position on this coin as of the last refresh ({} when flat)."""
+        p = next((p for p in self.risk if p["symbol"] == symbol and float(p.get("positionAmt") or 0) != 0), None)
+        if p is None:
+            return {}
+        return dict(amount=float(p["positionAmt"]), entry_px=float(p.get("entryPrice") or 0) or None,
+                    mark=float(p.get("markPrice") or 0) or None,
+                    pnl=float(p.get("unRealizedProfit") or p.get("unrealizedProfit") or 0))
+
+    async def fills(self, symbol: str, start_ms: float, end_ms: float) -> list[dict]:
+        """This account's fills on one coin between two times (read-only; Binance allows at most 7 days per call)."""
+        return await self.c.get("fapi", "/fapi/v1/userTrades", {"symbol": symbol, "startTime": int(start_ms),
+                                                                 "endTime": int(end_ms), "limit": 1000}, signed=True)
+
     async def replace_stop(self, symbol: str, side: str, stop: float) -> None:
         """Move the exchange-side stop of the `side` ("buy" = long) position on `symbol`: cancel its closePosition
         stop-market and place a new one at `stop` (the swing mirror trails stops this way)."""
@@ -345,8 +369,13 @@ class TestnetTicket:
         if row is None:
             raise ValueError(f"no open position on {sym}")
         amt = float(row["positionAmt"])
-        return await self.place_order(dict(symbol=sym, side="sell" if amt > 0 else "buy", type="market", qty=abs(amt),
-                                           reduce_only=True))
+        left, mx, out = abs(amt), await self.max_market_qty(sym), None
+        while left > 0:                                  # a big position closes in pieces of Binance's market maximum
+            piece = min(left, mx) if mx else left
+            out = await self.place_order(dict(symbol=sym, side="sell" if amt > 0 else "buy", type="market", qty=piece,
+                                              reduce_only=True))
+            left = round(left - piece, 12)
+        return out
 
     async def set_leverage(self, symbol: str, leverage) -> int:
         sym = self._check_symbol(symbol)

@@ -263,6 +263,11 @@ live on paper. It starts **three paper accounts** (trend, swing, smc), $10,000 e
   already have a testnet position, and orders the testnet refuses (below its minimum size, the stop already through the
   price). The testnet account holds one position per coin, so when two mirrored accounts trade the same coin, the
   first to open it owns it and the other skips that trade; the mirrors take turns, so they never race for a coin.
+  `--swing-mirror-copy-open` (used by the launcher) also copies the positions the accounts already hold, entered at
+  today's price with the paper stop. The dashboard then shows the **demo account's real results** in the swing cards
+  (open positions, realised P&L after fees from Binance's own fills, today, win rate; the paper figures are in the
+  tooltips), a "Demo account" column saying whether each paper position is really open on the testnet (or why not),
+  and a table of the demo account's closed trades.
   It only runs with `--live --testnet`. State: `data/swing-mirror-testnet-<account>.json` (one file per account).
 * **Run only one of the two at a time.** Both write the same journal; they would agree, but you would get every alert twice.
 * **It is paper only and separate from the arbitrage book.** If the candle download fails the runner logs it and retries

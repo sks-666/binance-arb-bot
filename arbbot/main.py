@@ -137,6 +137,9 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="TESTNET only (with --swing --live --testnet): copy these swing accounts' new trades onto the "
                         "futures testnet as real testnet orders with exchange-side stops (one account, a comma "
                         "separated list, or all; a coin another mirrored account already holds is skipped)")
+    p.add_argument("--swing-mirror-copy-open", action="store_true",
+                   help="with --swing-mirror: also copy positions the accounts already hold (entered at today's price, "
+                        "with the paper stop), not only new entries")
     p.add_argument("--swing-mirror-fund", type=float, default=10_000.0,
                    help="size the testnet copies as if the mirrored account held this many dollars (default 10000)")
     p.add_argument("--swing", action="store_true",
@@ -392,7 +395,9 @@ async def amain(args: argparse.Namespace) -> None:
                 if args.swing_mirror:
                     from .swing_mirror import SwingMirror, parse_accounts, state_path
                     mirror = [SwingMirror(swing, ticket, name, args.swing_mirror_fund, state_path(ROOT / "data", name),
-                                          notify=alerts.send) for name in parse_accounts(args.swing_mirror)]
+                                          notify=alerts.send, copy_existing=args.swing_mirror_copy_open)
+                              for name in parse_accounts(args.swing_mirror)]
+                    swing.mirrors = mirror                 # the dashboard shows the testnet results next to the paper
             except ImportError:
                 sys.exit("--swing needs the swingkit/ folder next to arbbot/.")
             except (ValueError, aiohttp.ClientError, asyncio.TimeoutError) as e:

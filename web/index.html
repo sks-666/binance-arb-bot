@@ -252,9 +252,10 @@
       <div class="kpis" id="sw-accts"></div>
       <div class="sw-fund" id="sw-fund" hidden></div>
       <div class="sw-grid">
-        <div><h3>Open swing positions</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Opened</th><th>Entry</th><th>Now</th><th>Stop</th><th>Target</th><th>P&amp;L</th></tr></thead><tbody id="sw-open"></tbody></table></div></div>
+        <div><h3>Open swing positions</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Opened</th><th>Entry</th><th>Now</th><th>Stop</th><th>Target</th><th>P&amp;L</th><th>Demo account</th></tr></thead><tbody id="sw-open"></tbody></table></div></div>
         <div><h3>Waiting for the next candle open</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Near</th><th>Stop</th><th>Target</th><th class="why">Why</th></tr></thead><tbody id="sw-setups"></tbody></table></div></div>
         <div><h3>Recent swing trades</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Opened → closed</th><th>In → out</th><th>P&amp;L</th><th>R</th><th>Out</th></tr></thead><tbody id="sw-trades"></tbody></table></div></div>
+        <div id="sw-demo-wrap" hidden><h3>Demo account trades · Binance futures testnet</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Opened → closed</th><th>In → out</th><th>P&amp;L after fees</th><th>Out</th></tr></thead><tbody id="sw-demo"></tbody></table></div></div>
       </div>
       <div class="sw-note" id="sw-note"></div>
     </div>
@@ -473,7 +474,21 @@ function renderSwing() {
   const A = w.accounts, sum = f => A.reduce((t, a) => t + (a[f] || 0), 0), each = f => A.map(a => `${a.strategy} ${f(a)}`).join(" · ");
   const wins = sum("wins"), closed = sum("closed"), real = sum("total_pnl"), today = sum("today_pnl");
   const kpi = (label, v, vcls, sub, tip) => `<div class="kpi" title="${esc(tip)}"><div class="l">${label}</div><div class="v ${vcls}">${v}</div><div class="s">${sub}</div></div>`;
-  $("sw-kpis").innerHTML = A.length ? [   // totals over the three paper accounts, like the arbitrage cards above
+  const D = w.demo || [], dsum = f => D.reduce((t, d) => t + (d.stats[f] || 0), 0);
+  const deach = f => D.map(d => `${d.strategy} ${f(d.stats)}`).join(" · ");
+  if (D.length) {   // the accounts trade on the futures testnet: its real fills are the result, the paper is the plan
+    const dw = dsum("wins"), dc = dsum("closed"), dr = dsum("realized"), dt = dsum("today"), wait = dsum("unsettled");
+    $("sw-kpis").innerHTML = [
+      kpi("Demo open positions", dsum("open"), "", esc(deach(s => s.open)) + ` · paper ${sum("open")}`,
+          "Positions really open on the Binance futures testnet, per account; paper = what the strategies hold"),
+      kpi("Demo realised P&amp;L", money(dr), cls(dr), `unrealised ${money(dsum("unrealized"))}`,
+          deach(s => money(s.realized)) + ` · after fees, from Binance's fills · paper ${money(real)}`),
+      kpi("Demo today (UTC)", money(dt), cls(dt), wait ? `${wait} result${wait > 1 ? "s" : ""} still being read` : "after fees",
+          deach(s => money(s.today)) + ` · paper ${money(today)}`),
+      kpi("Demo win rate", dc ? (dw / dc * 100).toFixed(0) + "%" : "–", "", `${dw}W / ${dc - dw}L`,
+          deach(s => s.closed ? `${s.wins}W/${s.losses}L` : "no trades") + ` · paper ${wins}W/${closed - wins}L`),
+    ].join("");
+  } else $("sw-kpis").innerHTML = A.length ? [   // totals over the three paper accounts, like the arbitrage cards above
     kpi("Swing open positions", sum("open"), "", esc(each(a => a.open)), "Open paper positions per account"),
     kpi("Swing realised P&amp;L", money(real), cls(real), `unrealised ${money(w.open.reduce((t, p) => t + (p.pnl || 0), 0))}`,
         each(a => money(a.total_pnl))),
@@ -481,13 +496,27 @@ function renderSwing() {
     kpi("Swing win rate", closed ? (wins / closed * 100).toFixed(0) + "%" : "–", "", `${wins}W / ${closed - wins}L`,
         each(a => a.closed ? `${a.wins}W/${a.closed - a.wins}L` : "no trades")),
   ].join("") : "";
+  const demoOf = name => D.find(d => d.strategy === name);
+  const demoCell = p => {   // is this paper position really open on the testnet, and what is it making there?
+    const d = demoOf(p.strategy);
+    if (!d) return `<td class="mut">–</td>`;
+    const why = d.status[`${p.symbol}:${p.entry_ts}`] || "not copied", o = d.open[p.symbol];
+    return why === "on demo" && o ? `<td class="n ${cls(o.pnl || 0)}" title="testnet entry ${o.entry_px ?? "–"}">on demo ${money(o.pnl || 0)}</td>`
+      : `<td class="mut" title="${esc(why)}">${esc(why.length > 34 ? why.slice(0, 32) + "…" : why)}</td>`;
+  };
+  const copies = D.flatMap(d => d.copies).sort((a, b) => b.closed_ms - a.closed_ms).slice(0, 15);
+  $("sw-demo-wrap").hidden = !D.length;
+  $("sw-demo").innerHTML = copies.length ? copies.map(c =>
+    `<tr><td class="sym">${esc(c.account)}</td><td class="sym">${coin(c.symbol)}</td><td>${side(c.side === "buy" ? "long" : "short")}</td><td class="n mut">${dtm(c.opened_ms)} → ${dtm(c.closed_ms)}</td><td class="n">${px(c.entry)} → ${px(c.exit)}</td>` +
+    (c.pnl == null ? `<td class="n mut">reading…</td>` : `<td class="n ${cls(c.pnl)}" title="fees ${money(-(c.fees || 0))}">${money(c.pnl)}</td>`) + `<td class="mut">${esc(c.why)}</td></tr>`
+  ).join("") : `<tr><td colspan="7" class="empty">No demo trades closed yet.</td></tr>`;
   $("sw-accts").innerHTML = w.accounts.length ? w.accounts.map(a =>
     `<div class="kpi"><div class="l">${esc(a.strategy)} · ${usd(a.capital)} fund</div><div class="v">${usd(a.equity)}</div>` +
     `<div class="s"><span class="${cls(a.return_pct)}">${sg(a.return_pct, 2)}%</span> · ${a.open} open · ${a.closed} closed${a.closed ? ` · ${a.wins}W · ${sg(a.avg_r, 2)}R avg` : ""}</div></div>`
   ).join("") : `<div class="empty">Loading the first candles…</div>`;
   $("sw-open").innerHTML = w.open.length ? w.open.map(p =>
-    `<tr title="${esc(p.reason)}"><td class="sym">${esc(p.strategy)}</td><td class="sym">${coin(p.symbol)}</td><td>${side(p.side)}</td><td class="n mut">${dtm(p.entry_ts)}</td><td class="n">${px(p.entry)}</td><td class="n">${px(p.mark)}</td><td class="n">${px(p.stop)}</td><td class="n">${px(p.target)}</td><td class="n ${cls(p.pnl)}">${money(p.pnl)} (${sg(p.r, 2)}R)</td></tr>`
-  ).join("") : `<tr><td colspan="9" class="empty">No open swing positions.</td></tr>`;
+    `<tr title="${esc(p.reason)}"><td class="sym">${esc(p.strategy)}</td><td class="sym">${coin(p.symbol)}</td><td>${side(p.side)}</td><td class="n mut">${dtm(p.entry_ts)}</td><td class="n">${px(p.entry)}</td><td class="n">${px(p.mark)}</td><td class="n">${px(p.stop)}</td><td class="n">${px(p.target)}</td><td class="n ${cls(p.pnl)}">${money(p.pnl)} (${sg(p.r, 2)}R)</td>${demoCell(p)}</tr>`
+  ).join("") : `<tr><td colspan="10" class="empty">No open swing positions.</td></tr>`;
   $("sw-setups").innerHTML = w.setups.length ? w.setups.map(s =>
     `<tr><td class="sym">${esc(s.strategy)}</td><td class="sym">${coin(s.symbol)}</td><td>${side(s.side)}</td><td class="n">${px(s.near)}</td><td class="n">${px(s.stop)}</td><td class="n">${px(s.target)}</td><td class="why">${esc(s.reason)}</td></tr>`
   ).join("") : `<tr><td colspan="7" class="empty">No setups waiting. That is the usual answer: these strategies wait for a pattern.</td></tr>`;
@@ -497,7 +526,9 @@ function renderSwing() {
   renderFunds(w);
   renderPower(w);
   if (w.enabled === false) $("sw-hint").textContent = `⏸ OFF since ${new Date(w.off_since).toISOString().slice(0, 16).replace("T", " ")} UTC · ` + $("sw-hint").textContent;
-  $("sw-note").textContent = `Each account risks ${w.risk_pct}% of its own equity per trade. Paper only: nothing here places an order. They decide on closed ${w.interval} candles and fill at the next open, so most of the time they simply wait.` + (w.symbols.length > 8 ? ` Markets: ${w.symbols.map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (Object.keys(w.unavailable || {}).length ? ` Skipped (no usable candles): ${Object.keys(w.unavailable).map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (w.error ? ` The last refresh failed: ${w.error}` : "");
+  $("sw-note").textContent = `Each account risks ${w.risk_pct}% of its own equity per trade. ` + (D.length
+    ? `Trading on the Binance futures TESTNET (demo account, test money): ${D.map(d => d.strategy).join(", ")} decide on the paper replay and every trade is placed on the demo account, whose real fills give the results above. They decide`
+    : `Paper only: nothing here places an order. They decide`) + ` on closed ${w.interval} candles and fill at the next open, so most of the time they simply wait.` + (w.symbols.length > 8 ? ` Markets: ${w.symbols.map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (Object.keys(w.unavailable || {}).length ? ` Skipped (no usable candles): ${Object.keys(w.unavailable).map(s => s.replace(/USDT$/, "")).join(" ")}.` : "") + (w.error ? ` The last refresh failed: ${w.error}` : "");
 }
 
 function renderAll() {

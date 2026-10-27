@@ -18,14 +18,16 @@ class FakeTestnet:
         self.positions: dict[str, float] = {}
         self.status_of: dict[int, str] = {}
         self.algo: list[dict] = []
+        self.market_max = None             # Binance's MARKET_LOT_SIZE maxQty, when a test sets one
 
     async def get(self, venue, path, params=None, signed=False, timeout=None):
         p = params or {}
         if path == "/fapi/v1/exchangeInfo":
+            extra = [{"filterType": "MARKET_LOT_SIZE", "maxQty": self.market_max}] if self.market_max else []
             return {"symbols": [{"symbol": s, "filters": [
                 {"filterType": "PRICE_FILTER", "tickSize": "0.10"},
                 {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
-                {"filterType": "MIN_NOTIONAL", "notional": "100"}]} for s in ("BTCUSDT", "ETHUSDT")]}
+                {"filterType": "MIN_NOTIONAL", "notional": "100"}] + extra} for s in ("BTCUSDT", "ETHUSDT")]}
         if path == "/fapi/v1/ticker/bookTicker":
             return {"bidPrice": "79999.9", "askPrice": "80000.1"}
         if path == "/fapi/v1/ticker/price":
@@ -105,6 +107,19 @@ class TicketTests(unittest.IsolatedAsyncioTestCase):
         ex.hosts = {"fapi": "https://fapi.binance.com", "spot": "https://api.binance.com"}
         with self.assertRaises(RuntimeError):
             TestnetTicket(ex, None)
+
+    async def test_binance_market_maximum_refuses_big_entries_and_splits_big_closes(self):
+        self.ex.market_max = "0.005"
+        with self.assertRaises(ValueError) as cm:
+            await self.order(side="buy", type="market", qty=0.012)
+        self.assertIn("largest market order Binance accepts", str(cm.exception))
+        self.assertEqual(self.ex.posts, [])
+        self.assertEqual(await self.t.max_market_qty("BTCUSDT"), 0.005)
+        self.ex.positions["BTCUSDT"] = 0.012                               # e.g. built up from several orders
+        await self.t.close_position("BTCUSDT")
+        self.assertEqual([(p["side"], p["quantity"]) for p in self.ex.posts], [("SELL", "0.005"), ("SELL", "0.005"),
+                                                                                ("SELL", "0.002")])
+        self.assertAlmostEqual(self.ex.positions["BTCUSDT"], 0.0)
 
     async def test_coins_held_by_the_arbitrage_bot_are_refused(self):
         with self.assertRaises(ValueError) as cm:
