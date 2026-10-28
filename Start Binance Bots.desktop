@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Start Binance Bots
+Comment=Start the testnet bot (and the mainnet bot if you confirm)
+Terminal=true
+Icon=utilities-terminal
+Exec=bash -c 'd=$(dirname "$1"); d=${d#file://}; cd "$d" || exit 1; ./"Start Binance Bots.command"; echo; read -r -p "Press Enter to close this window... "' _ %k
+Categories=Utility;Finance;

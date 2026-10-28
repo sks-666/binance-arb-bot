@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Stop Binance Bots
+Comment=Stop the testnet and mainnet bots
+Terminal=true
+Icon=process-stop
+Exec=bash -c 'd=$(dirname "$1"); d=${d#file://}; cd "$d" || exit 1; ./"Stop Binance Bots.command"; echo; read -r -p "Press Enter to close this window... "' _ %k
+Categories=Utility;Finance;
