@@ -4,7 +4,8 @@ Halt sources (any one blocks new entries):
   manual  - dashboard / --no-trade; clearable from the dashboard
   kill    - KILL file exists; also flattens; clears when the file is removed
   loss    - UTC-day realised loss limit; also flattens; clears at the next UTC day
-  fault   - repeated execution errors or an unhedged leg; needs a restart (fail closed)
+  fault   - repeated execution errors or an unhedged leg; needs a restart (fail closed). The one exception: a startup
+            reconciliation held up by Binance's rate limit clears itself once the retry finds the exchange in agreement
 """
 import os
 

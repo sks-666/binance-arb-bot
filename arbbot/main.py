@@ -14,7 +14,7 @@ from aiohttp import web
 
 from . import __version__
 from .alerts import Notifier, find_chat_ids
-from .binance_client import HOSTS, BinanceClient, BinanceError
+from .binance_client import HOSTS, BinanceClient, BinanceError, NotSentError
 from .commands import CommandHandler, TelegramListener
 from .config import load
 from .engine import Engine
@@ -46,6 +46,42 @@ KEY_VARS = {
 }
 
 
+def backoff_file(env: str) -> Path:
+    """Where a Binance rate-limit ban on this machine's IP is written down, one per environment (testnet and mainnet are
+    separate exchanges with separate limits); every bot and --check on this machine reads it before sending anything."""
+    return ROOT / "data" / f"binance-ban-{env}.json"
+
+
+def rate_limited(e: Exception) -> bool:
+    """Binance refused (or this bot held back) the request for the request-weight limit, not for anything wrong."""
+    return isinstance(e, NotSentError) or (isinstance(e, BinanceError) and (e.status in (418, 429) or e.code == -1003))
+
+
+RECONCILE_WAIT = "waiting to reconcile with the exchange"
+
+
+async def reconcile_when_allowed(executor, client, portfolio, board, risk, ignore, event, min_wait_s: float = 5.0) -> None:
+    """Startup reconciliation that hit Binance's rate limit: retry once the ban or slow-down is over. Entries stay off
+    (the fault) until it passes; a real mismatch then turns into the usual fault that needs a restart."""
+    while True:
+        await asyncio.sleep(max(client.paused_for(), min_wait_s) + (2.0 if min_wait_s else 0.0))
+        try:
+            problems = await executor.reconcile(portfolio.open, board.markets, ignore=ignore())
+        except Exception as e:
+            if rate_limited(e):
+                continue
+            problems = [f"could not reconcile with the exchange: {type(e).__name__}: {e}"]
+        for problem in problems:
+            logging.getLogger("main").error("RECONCILE: %s", problem)
+        if problems:
+            risk.trip_fault(("startup reconciliation failed: " + "; ".join(problems))[:400])
+            event("error", f"fault breaker tripped: {risk.fault}")
+        elif risk.fault.startswith(RECONCILE_WAIT):
+            risk.fault = ""
+            event("info", "reconciled after the rate-limit pause: saved positions match the exchange; fault cleared")
+        await asyncio.Event().wait()   # done: stay idle, since a finished task would shut the bot down
+
+
 def live_keys(env: str, environ=None) -> dict[str, tuple[str, str, str]]:
     """{venue: (key, secret, name of the variable it came from)}. Values are never logged, only the variable names."""
     environ = os.environ if environ is None else environ
@@ -63,6 +99,8 @@ def explain_binance_error(e: BinanceError, env: str, keys: dict) -> str:
     venue = "fapi" if e.path.startswith(("/fapi", "/futures")) else "spot"
     name, var = VENUE_NAME[venue], keys[venue][2]
     host = HOSTS[env][venue]
+    if isinstance(e, NotSentError):
+        return f"nothing was sent to Binance {env} {name} ({host}): {e.msg}. Start again after that."
     if e.status in (401, 403) or e.code in (-2014, -2015, -1022):
         return (f"Binance {env} {name} ({host}) rejected the key from {var}: HTTP {e.status}, code {e.code}, "
                 f"{e.msg}. Check the key was created for {host}, has {name} trading permission, and has no IP "
@@ -80,7 +118,8 @@ async def run_check(cfg, keys: dict) -> int:
               + ("" if keys[venue][0] and keys[venue][1] else "  (NOT SET)"))
     ok = True
     async with aiohttp.ClientSession() as session:
-        client = BinanceClient(session, env, timeout_s=10.0, venue_keys={v: (k, s) for v, (k, s, _) in keys.items()})
+        client = BinanceClient(session, env, timeout_s=10.0, venue_keys={v: (k, s) for v, (k, s, _) in keys.items()},
+                               backoff_file=backoff_file(env))
         ex = LiveExecutor(client, cfg)
 
         async def step(label, coro_fn, show):
@@ -300,6 +339,7 @@ async def amain(args: argparse.Namespace) -> None:
             os.environ.get("BINANCE_API_SECRET", "") if live else "",
             cfg.feed.request_timeout_s,
             venue_keys={v: (k, s) for v, (k, s, _) in keys.items()},
+            backoff_file=backoff_file(cfg.execution.env),
         )
         if live:
             executor = LiveExecutor(client, cfg)
@@ -356,17 +396,23 @@ async def amain(args: argparse.Namespace) -> None:
             # one paper futures account per bot state, so two bots (e.g. paper + testnet) never write the same file
             pf_name = "paper-futures.json" if db_path.stem == "paper-mainnet-real" else f"paper-futures-{db_path.stem}.json"
             ticket = PaperFutures(ROOT / "data" / pf_name, client, cfg.fees.futures_taker_bps, notify=alerts.send)
+        reconcile_later = False
+        ticket_owned = (lambda: ticket.owned()) if isinstance(ticket, TestnetTicket) else (lambda: frozenset())
         if live:  # never trade on top of a book that disagrees with the exchange
             try:
-                problems = await executor.reconcile(portfolio.open, board.markets,
-                                                    ignore=ticket.owned() if isinstance(ticket, TestnetTicket) else frozenset())
+                problems = await executor.reconcile(portfolio.open, board.markets, ignore=ticket_owned())
             except Exception as e:
-                problems = [f"could not reconcile with the exchange: {type(e).__name__}: {e}"]
+                if rate_limited(e):   # Binance's limit, not a mismatch: entries wait, and it is retried when allowed
+                    reconcile_later = True
+                    risk.trip_fault(f"{RECONCILE_WAIT} ({e.msg if isinstance(e, BinanceError) else e}); it is retried "
+                                    f"automatically and entries resume after it passes"[:400])
+                    log.warning("RECONCILE: %s", risk.fault)
+                problems = [] if reconcile_later else [f"could not reconcile with the exchange: {type(e).__name__}: {e}"]
             for problem in problems:
                 log.error("RECONCILE: %s", problem)
             if problems:
                 risk.trip_fault(("startup reconciliation failed: " + "; ".join(problems))[:400])
-            else:
+            elif not reconcile_later:
                 log.info("reconciled: saved positions match the exchange")
         depth = RestDepth(client) if (cfg.feed.mode in ("rest", "ws") and cfg.risk.use_depth_sizing) else None
         recorder = None
@@ -388,7 +434,7 @@ async def amain(args: argparse.Namespace) -> None:
                     log.warning("swing: the simulated feed has no real markets; paper-trading %s instead", spec)
                 # swing signals always come from real (mainnet) candles: on testnet a key-less public mainnet client
                 swing_client = client if cfg.execution.env == "mainnet" else BinanceClient(
-                    session, "mainnet", timeout_s=cfg.feed.request_timeout_s)
+                    session, "mainnet", timeout_s=cfg.feed.request_timeout_s, backoff_file=backoff_file("mainnet"))
                 if cfg.execution.env != "mainnet" and args.swing_journal_db == "data/swing-journal.db":
                     args.swing_journal_db = "data/swing-journal-testnet.db"   # never mix with the paper bot's journal
                 # "arb" = the very markets the arbitrage bot scans (same universe, same volume ranking)
@@ -481,6 +527,8 @@ async def amain(args: argparse.Namespace) -> None:
                      cfg.publisher.interval_s, url_fp, token_fp)
         coros = [feed.run(), engine.run(), dash.broadcast_loop(), alerts.run(), listener.run(), publisher.run(),
                  ticket.run()]
+        if reconcile_later:
+            coros.append(reconcile_when_allowed(executor, client, portfolio, board, risk, ticket_owned, engine.event))
         if sampler is not None:
             coros.append(sampler.run())
         if swing is not None:
