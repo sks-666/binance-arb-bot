@@ -8,7 +8,7 @@ opt-in live executor.
 ## Quick start
 
 ```bash
-cd ~/Documents/binance-arb-bot
+cd /path/to/binance-arb-bot                 # wherever you keep the folder, e.g. ~/Desktop/binance-arb-bot
 .venv/bin/python run.py --feed sim          # offline demo with synthetic dislocations
 .venv/bin/python run.py                     # REAL Binance WebSocket data (REST fallback), PAPER trading, no keys
 ```
@@ -44,11 +44,14 @@ The Mac's Wi-Fi address was `192.168.100.9` when this was written; it can change
 **Get your phone links** (they are printed with the key filled in, every time the bots start):
 
 ```bash
-grep -h phone: ~/Documents/binance-arb-bot/logs/mainnet-bot.out ~/Documents/binance-arb-bot/logs/testnet-bot.out
+cd /path/to/binance-arb-bot      # the folder you start the bots from, e.g. ~/Desktop/binance-arb-bot
+grep -h phone: logs/mainnet-bot.out logs/testnet-bot.out
 ```
 
+The log files only exist after `Start Binance Bots.command` has started a bot (the `mainnet` one only if you said yes to it).
+
 The `Start Binance Bots.command` window shows the same links ("on your phone (same Wi-Fi): …"). The Mac's current
-Wi-Fi address on its own: `ipconfig getifaddr en0`.
+Wi-Fi address on its own: `ipconfig getifaddr en0` (macOS) or `hostname -I` (Linux).
 
 **First time on the phone:** send the link to the phone (AirDrop, Notes), open it in Safari or Chrome, then bookmark the
 page. The phone remembers the key (a cookie for 180 days), so afterwards `http://192.168.100.9:8767` alone works.
