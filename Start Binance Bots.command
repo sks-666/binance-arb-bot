@@ -13,8 +13,17 @@
 # Only one bot may answer Telegram commands: the mainnet bot when it runs, otherwise the testnet bot.
 # --lan: both dashboards also open on your phone (same Wi-Fi) through the "on your phone" links printed below; the
 # link carries a private key (data/lan-key-<port>.txt), and any device without it only sees a "locked" page.
+# Keep the window open when the script ends (or fails), so a terminal opened by double-click does not vanish before
+# you can read the output.
+pause_on_exit() { if [[ -t 0 ]]; then echo; read -r -p "Press Enter to close this window... "; fi; }
+trap pause_on_exit EXIT
 cd "$(dirname "$0")" || exit 1
 PY=.venv/bin/python
+if [[ ! -x "$PY" ]]; then
+    echo "ERROR: $PY not found (the Python environment has not been created yet)."
+    echo "Create it once, in this folder:  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+    exit 1
+fi
 REAL_TICKET_MAX_USD=100               # largest real-money order from the mainnet dashboard's ticket, in USDT
 TESTNET="run.py --live --testnet"
 MAINNET="run.py --live --config config.toml"

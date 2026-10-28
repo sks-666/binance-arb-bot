@@ -1,6 +1,10 @@
 #!/bin/bash
 # Double-click to stop the testnet and mainnet bots. Open positions stay open on Binance (arbitrage pairs stay hedged);
 # close them from the dashboard or Telegram /flatten first if you want to be flat.
+# Keep the window open when the script ends (or fails), so a terminal opened by double-click does not vanish before
+# you can read the output.
+pause_on_exit() { if [[ -t 0 ]]; then echo; read -r -p "Press Enter to close this window... "; fi; }
+trap pause_on_exit EXIT
 cd "$(dirname "$0")" || exit 1
 
 stop() {   # $1 = name, $2 = pattern
