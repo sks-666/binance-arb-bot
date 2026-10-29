@@ -45,7 +45,7 @@ class FakeTicket:
         amt = self.position(sym)
         return dict(amount=amt, entry_px=100.0, mark=101.0, pnl=amt * 1.0) if amt else {}
 
-    async def fills(self, sym, start_ms, end_ms):
+    async def fills_between(self, sym, start_ms, end_ms):
         if self.fills_down:
             raise RuntimeError("rate limited")
         return [f for f in self.log if f["symbol"] == sym and start_ms <= f["time"] <= end_ms]

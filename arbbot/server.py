@@ -11,6 +11,7 @@ import logging
 import os
 import secrets
 import subprocess
+import time
 from pathlib import Path
 
 from aiohttp import WSMsgType, web
@@ -18,6 +19,7 @@ from aiohttp import WSMsgType, web
 from .binance_client import BinanceError, NotSentError
 from .config import Config
 from .engine import Engine
+from .pnl_report import PERIODS, report as pnl_report
 
 log = logging.getLogger("server")
 ACTIONS = ("halt", "resume", "flatten")
@@ -119,6 +121,7 @@ class Dashboard:
         app.router.add_get("/", self.index)
         app.router.add_get("/ws", self.ws)
         app.router.add_get("/api/snapshot", self.snapshot)
+        app.router.add_get("/api/pnl", self.pnl)
         app.router.add_get("/api/market/{kind}", self.market_data)
         app.router.add_get("/api/paper/state", self.paper_state)
         app.router.add_post("/api/paper/{op}", self.paper_action)
@@ -237,6 +240,30 @@ class Dashboard:
 
     async def snapshot(self, request: web.Request) -> web.Response:
         return web.json_response(self.engine.snapshot())
+
+    async def pnl(self, request: web.Request) -> web.Response:
+        """P&L by day, week or month for one panel (read-only): ?panel=arb|swing|demo|ticket&period=day|week|month."""
+        panel, period = request.query.get("panel", "arb"), request.query.get("period", "day")
+        if period not in PERIODS:
+            return web.json_response({"error": f"period must be one of {', '.join(PERIODS)}"}, status=400)
+        swing = getattr(self.engine, "swing", None)
+        try:
+            if panel == "arb":
+                events, note = self.engine.pf.store.pnl_events(), "arbitrage trades · after fees"
+            elif panel in ("swing", "demo") and swing is not None:
+                events = swing.pnl_events("demo" if panel == "demo" else "paper")
+                note = ("swing kit trades on the futures testnet demo account · after fees, from Binance's fills"
+                        if panel == "demo" else "swing kit paper accounts (trend, swing, smc) · after fees")
+            elif panel == "ticket" and self.paper is not None:
+                events, note = await self.paper.pnl_events()
+            else:
+                return web.json_response({"error": f"no {panel} panel in this bot"}, status=404)
+        except Exception as e:                    # Binance down or rate limited for the account's history
+            log.warning("pnl report %s failed: %s: %s", panel, type(e).__name__, e)
+            return web.json_response({"error": f"could not read the history: {type(e).__name__}: {str(e)[:120]}"},
+                                     status=502)
+        return web.json_response(dict(pnl_report(events, period, time.time()), panel=panel, note=note),
+                                 headers={"Cache-Control": "no-store"})
 
     async def action(self, request: web.Request) -> web.Response:
         action = request.match_info["action"]

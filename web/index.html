@@ -186,6 +186,37 @@
   th.why { text-align: left; }
   .side-long { color: var(--pos); font-weight: 650; } .side-short { color: var(--neg); font-weight: 650; }
   @media (max-width: 640px) { .wrap { padding: 12px 16px; } .kpi .v { font-size: 18px; } }
+  :root[data-theme="light"] {
+    --bg: #f4f6fa; --panel: #ffffff; --panel-2: #eef2f8; --line: #d8e0ec; --text: #142033; --muted: #5d6f88;
+    --accent: #0a7fb0; --pos: #0e9d63; --neg: #d6403f; --warn: #b87a00; --sim: #7a4fd6;
+    --shadow: none; color-scheme: light;
+  }
+  /* section menu: sticky, scrolls sideways on a phone */
+  .nav { position: sticky; top: 0; z-index: 6; display: flex; gap: 6px; overflow-x: auto; padding: 8px 0; margin: -6px 0 10px;
+         background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px); scrollbar-width: none; }
+  .nav a { color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 999px;
+           border: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
+  .nav a:hover, .nav a:focus-visible { color: var(--text); border-color: var(--accent); outline: none; }
+  section[id], div[id="arb"] { scroll-margin-top: 56px; }
+  /* P&L report (daily / weekly / monthly) */
+  .pnl { border-top: 1px solid var(--line); padding: 12px 14px 14px; }
+  .pnl-h { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .pnl-h h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0; font-weight: 600; }
+  .pnl-ctl { display: flex; flex-wrap: wrap; gap: 8px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; min-height: 30px; padding: 4px 12px; background: none; color: var(--muted); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--panel-2); color: var(--text); }
+  .pnl-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .pnl-sum > div { background: var(--panel-2); border-radius: 8px; padding: 6px 10px; min-width: 0; }
+  .pnl-sum .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .pnl-sum .v { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; font-weight: 650; font-size: 15px; }
+  .pnl-sum .s { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pnl-chart { width: 100%; height: 160px; display: block; margin-bottom: 8px; }
+  .pnl-chart text { fill: var(--muted); font: 10.5px ui-sans-serif, -apple-system, sans-serif; }
+  .pnl .tbl { border: 1px solid var(--line); border-radius: 10px; }
+  .pnl-note { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .pnl tr.zero td { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -198,14 +229,20 @@
       <span class="badge"><span id="dot" class="dot"></span><span id="feedtxt">connecting…</span></span>
     </div>
     <div class="hdr-right">
+      <button id="btn-theme" type="button" title="Theme: follows the system" aria-label="Switch theme">◐ Auto</button>
       <button id="btn-pause" type="button">Pause entries</button>
       <button id="btn-flat" type="button" class="danger">Flatten all</button>
     </div>
   </header>
 
+  <nav class="nav" aria-label="Sections">
+    <a href="#overview">Overview</a><a href="#arb">Arbitrage</a><!--NAV-PNL--><a href="#arb-pnl">Arbitrage P&amp;L</a><!--/NAV-PNL-->
+    <a href="#sw-card">Swing kit</a><!--NAV-MARKET--><a href="#mk-card">Market &amp; ticket</a><!--/NAV-MARKET-->
+  </nav>
+
   <div id="banner" class="banner" role="status"></div>
 
-  <section class="kpis" aria-label="Summary">
+  <section class="kpis" id="overview" aria-label="Summary">
     <div class="kpi"><div class="l">Markets</div><div class="v" id="k-markets">–</div><div class="s" id="k-markets-s">&nbsp;</div></div>
     <div class="kpi"><div class="l">Signals now</div><div class="v" id="k-signals">–</div><div class="s" id="k-signals-s">&nbsp;</div></div>
     <div class="kpi"><div class="l">Open positions</div><div class="v" id="k-open">–</div><div class="s" id="k-open-s">&nbsp;</div></div>
@@ -215,7 +252,7 @@
     <div class="kpi"><div class="l">Feed</div><div class="v" id="k-feed">–</div><div class="s" id="k-feed-s">&nbsp;</div></div>
   </section>
 
-  <div class="grid">
+  <div class="grid" id="arb">
     <section class="card" aria-labelledby="h-markets">
       <div class="card-h"><h2 id="h-markets">Markets</h2><span class="hint" id="mk-hint">click a column to sort</span></div>
       <div class="scroll tall">
@@ -242,6 +279,11 @@
     </div>
   </div>
 
+  <!--PNL--><section class="card" id="arb-pnl" aria-labelledby="h-arb-pnl" style="margin-top:14px">
+    <div class="card-h"><h2 id="h-arb-pnl">Arbitrage P&amp;L report</h2><span class="hint">UTC days · weeks from Monday · months</span></div>
+    <div class="pnl" data-panel="arb" data-title="Arbitrage trades"></div>
+  </section><!--/PNL-->
+
   <section class="card" id="sw-card" aria-labelledby="h-swing" style="margin-top:14px">
     <div class="card-h"><h2 id="h-swing">Swing paper accounts · trend · swing · SMC</h2>
       <div class="sw-right"><span class="hint" id="sw-hint"></span>
@@ -257,6 +299,7 @@
         <div><h3>Recent swing trades</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Opened → closed</th><th>In → out</th><th>P&amp;L</th><th>R</th><th>Out</th></tr></thead><tbody id="sw-trades"></tbody></table></div></div>
         <div id="sw-demo-wrap" hidden><h3>Demo account trades · Binance futures testnet</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Opened → closed</th><th>In → out</th><th>P&amp;L after fees</th><th>Out</th></tr></thead><tbody id="sw-demo"></tbody></table></div></div>
       </div>
+      <!--PNL--><div class="pnl" data-panel="swing" data-sources="demo,swing" data-title="Swing kit P&amp;L report"></div><!--/PNL-->
       <div class="sw-note" id="sw-note"></div>
     </div>
   </section>
@@ -364,6 +407,7 @@
         <div id="pf-pane-hist" class="tbl scroll mid" hidden><table><thead><tr><th style="text-align:left">Time</th><th style="text-align:left">Market</th><th>Type</th><th>Side</th><th>Avg / price</th><th>Amount</th><th>Status</th><th class="why">Note</th></tr></thead><tbody id="pf-hist"></tbody></table></div>
         <div id="pf-pane-trades" class="tbl scroll mid" hidden><table><thead><tr><th style="text-align:left">Time</th><th style="text-align:left">Market</th><th>Side</th><th>Price</th><th>Amount</th><th>Fee</th><th>Realized PnL</th><th>Role</th></tr></thead><tbody id="pf-trades"></tbody></table></div>
         <div id="pf-pane-assets" hidden><div class="mk-kv" id="pf-assets"></div></div>
+        <div class="pnl" data-panel="ticket" data-title="Futures account P&amp;L report"></div>
       </div>
     </div>
     <div class="sw-note">Live public market data from Binance USD-M futures, relayed by this bot (read-only: nothing here can place an order). Click a top mover to chart it.</div>
@@ -496,6 +540,7 @@ function renderSwing() {
     kpi("Swing win rate", closed ? (wins / closed * 100).toFixed(0) + "%" : "–", "", `${wins}W / ${closed - wins}L`,
         each(a => a.closed ? `${a.wins}W/${a.closed - a.wins}L` : "no trades")),
   ].join("") : "";
+  if (typeof pnlSwingSources === "function") pnlSwingSources(D.length > 0);   // not on the hosted copy
   const demoOf = name => D.find(d => d.strategy === name);
   const demoCell = p => {   // is this paper position really open on the testnet, and what is it making there?
     const d = demoOf(p.strategy);
@@ -1194,6 +1239,123 @@ otMode(); pfRender();
 setInterval(pfPoll, 2000);
 pfPoll();
 mkTick();
+
+// ---- P&L reports: daily / weekly / monthly on each panel (/api/pnl) --------------------------------------------
+const PNL_PER = [["day", "Daily"], ["week", "Weekly"], ["month", "Monthly"]], PNL_SRC = { demo: "Demo account", swing: "Paper" };
+const lsGet = k => { try { return localStorage.getItem(k); } catch (_) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (_) { } };
+function pnlInit(el) {
+  const panel = el.dataset.panel, sources = el.dataset.sources ? el.dataset.sources.split(",") : null;
+  const st = el._pnl = { panel, sources, period: lsGet(`pnl-${panel}-p`) || "day",
+                         source: sources ? (lsGet(`pnl-${panel}-s`) || sources[0]) : panel, data: null };
+  el.innerHTML = `<div class="pnl-h"><h3>${esc(el.dataset.title || "P&L report")}</h3><div class="pnl-ctl">` +
+    (sources ? `<div class="seg" role="group" aria-label="Which results">${sources.map(s => `<button type="button" data-src="${s}">${PNL_SRC[s]}</button>`).join("")}</div>` : "") +
+    `<div class="seg" role="group" aria-label="Period">${PNL_PER.map(([k, l]) => `<button type="button" data-per="${k}">${l}</button>`).join("")}</div></div></div>` +
+    `<div class="pnl-sum"></div><svg class="pnl-chart" role="img" aria-label="P&L per period, with the running total"></svg>` +
+    `<div class="tbl scroll mid"><table><thead><tr><th>Period (UTC)</th><th>P&amp;L</th><th>Trades</th><th>Win rate</th><th>Running total</th></tr></thead><tbody></tbody></table></div>` +
+    `<div class="pnl-note"></div>`;
+  el.addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (b?.dataset.per) { st.period = b.dataset.per; lsSet(`pnl-${panel}-p`, st.period); }
+    else if (b?.dataset.src) { st.source = b.dataset.src; lsSet(`pnl-${panel}-s`, st.source); }
+    else return;
+    pnlLoad(el);
+  });
+  pnlLoad(el);
+}
+async function pnlLoad(el) {
+  const st = el._pnl;
+  el.querySelectorAll("[data-per]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.per === st.period)));
+  el.querySelectorAll("[data-src]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.src === st.source)));
+  try {
+    const r = await fetch(`/api/pnl?panel=${encodeURIComponent(st.source)}&period=${st.period}`, { cache: "no-store" });
+    const d = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+    if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+    st.data = d;
+  } catch (e) {
+    st.data = null;
+    el.querySelector(".pnl-sum").innerHTML = "";
+    el.querySelector(".pnl-chart").innerHTML = "";
+    el.querySelector("tbody").innerHTML = `<tr><td colspan="5" class="empty">The P&amp;L report is not available here.</td></tr>`;
+    el.querySelector(".pnl-note").textContent = String(e.message || e);
+    return;
+  }
+  pnlRender(el);
+}
+function pnlRender(el) {
+  const d = el._pnl.data;
+  if (!d) return;
+  const rows = d.rows.slice().reverse();                    // oldest first, for the chart and the running total
+  let run = 0;
+  const cum = rows.map(r => (run += r.pnl));
+  const wr = (w, n) => n ? `${(w / n * 100).toFixed(0)}%` : "–";
+  const tile = (l, v, vc, s) => `<div><div class="l">${l}</div><div class="v ${vc || ""}">${v}</div><div class="s">${s || "&nbsp;"}</div></div>`;
+  const per = { day: "days", week: "weeks", month: "months" }[d.period];
+  el.querySelector(".pnl-sum").innerHTML = [
+    tile(`Total · last ${d.rows.length} ${per}`, money(d.total), cls(d.total), `${d.trades} trade${d.trades === 1 ? "" : "s"}`),
+    tile("Win rate", wr(d.wins, d.trades), "", `${d.wins}W / ${d.losses}L`),
+    tile(`Green / red ${per}`, `${d.green} / ${d.red}`, "", `${d.active} with activity`),
+    tile(`Average per ${d.period}`, d.active ? money(d.avg) : "–", cls(d.avg), "active periods only"),
+    tile("Best", d.best ? money(d.best.pnl) : "–", d.best ? cls(d.best.pnl) : "", d.best ? esc(d.best.label) : ""),
+    tile("Worst", d.worst ? money(d.worst.pnl) : "–", d.worst ? cls(d.worst.pnl) : "", d.worst ? esc(d.worst.label) : ""),
+  ].join("");
+  // chart: one bar per period (green up, red down), the running total as a line on its own scale
+  const svg = el.querySelector(".pnl-chart");
+  svg.hidden = !d.active;
+  if (!d.active) {                                          // nothing yet: say so instead of an empty chart
+    el.querySelector("tbody").innerHTML = `<tr><td colspan="5" class="empty">No closed trades in the last ${d.rows.length} ${per} yet.</td></tr>`;
+    el.querySelector(".pnl-note").textContent = `${d.note}. Updated ${new Date().toLocaleTimeString()}.`;
+    return;
+  }
+  const W = Math.max(280, svg.clientWidth || 600), H = 160, padL = 6, padR = 6, top = 10, bot = 20;
+  const n = rows.length, bw = (W - padL - padR) / n, max = Math.max(1e-9, ...rows.map(r => Math.abs(r.pnl)));
+  const y0 = top + (H - top - bot) / 2, sc = (H - top - bot) / 2 / max;
+  const cmax = Math.max(1e-9, ...cum.map(Math.abs)), cy = v => y0 - v / cmax * (H - top - bot) / 2;
+  const short = l => l.replace("week of ", "").slice(d.period === "month" ? 0 : 5);
+  let g = `<line x1="0" x2="${W}" y1="${y0}" y2="${y0}" style="stroke:var(--line)"/>`;
+  rows.forEach((r, i) => {
+    const h = Math.abs(r.pnl) * sc, x = padL + i * bw + bw * .15, w = Math.max(1, bw * .7);
+    g += `<rect x="${x.toFixed(1)}" y="${(r.pnl >= 0 ? y0 - h : y0).toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(h, r.trades ? 1 : 0).toFixed(1)}" rx="1.5" style="fill:var(${r.pnl >= 0 ? "--pos" : "--neg"})"><title>${esc(r.label)}: ${money(r.pnl)} · ${r.trades} trade${r.trades === 1 ? "" : "s"} · running ${money(cum[i])}</title></rect>`;
+  });
+  if (rows.some(r => r.pnl)) g += `<polyline fill="none" style="stroke:var(--accent)" stroke-width="1.5" stroke-dasharray="4 3" points="${cum.map((v, i) => `${(padL + i * bw + bw / 2).toFixed(1)},${cy(v).toFixed(1)}`).join(" ")}"/>`;
+  g += `<text x="${padL}" y="${H - 5}">${esc(short(rows[0].label))}</text><text x="${W - padR}" y="${H - 5}" text-anchor="end">${esc(short(rows[n - 1].label))}</text>`;
+  g += `<text x="${padL}" y="${top + 2}">bars up to ±${money(max).slice(1)} · dashed line = running total</text>`;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = g;
+  el.querySelector("tbody").innerHTML = d.rows.map((r, i) => {
+    const c = cum[n - 1 - i];
+    return `<tr class="${r.trades || r.pnl ? "" : "zero"}"><td>${esc(r.label)}</td><td class="n ${cls(r.pnl)}">${r.trades || r.pnl ? money(r.pnl) : "–"}</td><td class="n">${r.trades || "–"}</td><td class="n">${wr(r.wins, r.trades)}</td><td class="n ${cls(c)}">${money(c)}</td></tr>`;
+  }).join("");
+  el.querySelector(".pnl-note").textContent = `${d.note}. Updated ${new Date().toLocaleTimeString()}.`;
+}
+function pnlSwingSources(hasDemo) {   // the demo-account choice only where the swing kit trades on the testnet
+  const el = document.querySelector('.pnl[data-panel="swing"]');
+  if (!el?._pnl) return;
+  const b = el.querySelector('[data-src="demo"]');
+  if (b) b.hidden = !hasDemo;
+  if (!hasDemo && el._pnl.source === "demo") { el._pnl.source = "swing"; pnlLoad(el); }
+}
+
+// ---- theme: follow the system, or force light / dark (remembered on this device) ------------------------------
+const THEMES = [["auto", "◐ Auto", "follows the system"], ["light", "☀ Light", "light"], ["dark", "☾ Dark", "dark"]];
+function applyTheme(t) {
+  const i = Math.max(0, THEMES.findIndex(x => x[0] === t));
+  if (THEMES[i][0] === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = THEMES[i][0];
+  $("btn-theme").textContent = THEMES[i][1];
+  $("btn-theme").title = `Theme: ${THEMES[i][2]} (click to change)`;
+  requestAnimationFrame(() => { if (typeof drawChart === "function") drawChart(); document.querySelectorAll(".pnl").forEach(pnlRender); });
+}
+$("btn-theme").addEventListener("click", () => {
+  const cur = document.documentElement.dataset.theme || "auto", next = THEMES[(THEMES.findIndex(x => x[0] === cur) + 1) % THEMES.length][0];
+  lsSet("theme", next);
+  applyTheme(next);
+});
+applyTheme(lsGet("theme") || "auto");
+document.querySelectorAll(".pnl").forEach(pnlInit);
+setInterval(() => document.querySelectorAll(".pnl").forEach(el => { if (el.offsetParent !== null) pnlLoad(el); }), 60_000);
+let pnlResize;
+window.addEventListener("resize", () => { clearTimeout(pnlResize); pnlResize = setTimeout(() => document.querySelectorAll(".pnl").forEach(pnlRender), 200); });
 
 function connect() {
   ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);

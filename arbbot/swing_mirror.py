@@ -132,8 +132,8 @@ class SwingMirror:
         try:
             end = rec["closed_ms"] + 60_000
             start = max(min(rec["seen_ms"], rec["closed_ms"]) - 60_000, end - 6 * 86_400_000)   # 7-day limit per call
-            exits = [f for f in await self.ticket.fills(rec["symbol"], start, end) if f.get("side") == out_side]
-            entries = [f for f in await self.ticket.fills(rec["symbol"], rec["opened_ms"] - 60_000,
+            exits = [f for f in await self.ticket.fills_between(rec["symbol"], start, end) if f.get("side") == out_side]
+            entries = [f for f in await self.ticket.fills_between(rec["symbol"], rec["opened_ms"] - 60_000,
                                                            rec["opened_ms"] + 300_000) if f.get("side") != out_side]
         except Exception as e:                              # rate limit, network: try again next pass
             log.info("%s mirror: the result of %s is not readable yet (%s)", self.strategy, rec["symbol"], e)
@@ -160,15 +160,17 @@ class SwingMirror:
 
     # ---- one pass ---------------------------------------------------------------------------------
     async def step(self) -> None:
+        pending = [rec for rec in self.s["copies"] if rec.get("pnl") is None and rec.get("tries", 0) < 10]
+        for rec in pending:                               # results Binance could not give yet: ask again (this needs
+            await self._settle(rec)                       # only the testnet account, not the swing runner's candles)
+        if pending:
+            self._save()
         res = self.runner.results.get(self.strategy)
         if res is None:                                   # the swing runner has not replayed yet
             return
         want = {p["symbol"]: p for p in res.open_positions if self.copy_existing or p["entry_ts"] >= self.s["start_ts"]}
         await self.ticket.refresh()
         now_ms = int(self.clock() * 1000)
-        for rec in self.s["copies"]:                      # results Binance could not give yet: ask again
-            if rec.get("pnl") is None and rec.get("tries", 0) < 10:
-                await self._settle(rec)
         opened = self.s["open"]
         # 1. positions that ended: the paper exited, or the exchange stop fired first
         for sym, m in list(opened.items()):

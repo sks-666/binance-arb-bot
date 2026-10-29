@@ -375,6 +375,16 @@ class SwingRunner:
                   for t in self.journal.trades(mode="paper", status="closed", run_like=self._run_ids(), limit=10)]
         return dict(self._meta(), loading=False, accounts=accounts, open=open_, setups=setups, trades=trades)
 
+    def pnl_events(self, source: str = "paper") -> list[tuple[float, float, bool]]:
+        """Closed trades as (epoch seconds, P&L USD, True) for the P&L reports: the paper accounts' journal, or with
+        source="demo" the copies' real results on the futures testnet (after fees, from Binance's fills)."""
+        if source == "demo":
+            return [(c["closed_ms"] / 1000, c["pnl"], True) for m in self.mirrors for c in m.s["copies"]
+                    if c.get("pnl") is not None]
+        return [(t["closed_at"] / 1000, t["pnl_usd"], True) for t in
+                self.journal.trades(mode="paper", status="closed", run_like=self._run_ids(), limit=None)
+                if t["closed_at"] and t["pnl_usd"] is not None]
+
     def snapshot(self) -> dict:
         """What the dashboard shows. Cheap: the heavy part is built once per replay."""
         base = self._snap if self._snap is not None else dict(self._meta(), loading=True, accounts=[], open=[],

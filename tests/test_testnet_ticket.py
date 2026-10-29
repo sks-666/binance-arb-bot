@@ -108,6 +108,12 @@ class TicketTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             TestnetTicket(ex, None)
 
+    async def test_the_mirror_reads_fills_through_a_method_the_fills_list_cannot_hide(self):
+        # the ticket keeps its recent trade history in self.fills (a list); the mirror's reader must be another name
+        await self.t.refresh()
+        self.assertIsInstance(self.t.fills, list)
+        self.assertEqual(await self.t.fills_between("BTCUSDT", 0, 1), [])
+
     async def test_binance_market_maximum_refuses_big_entries_and_splits_big_closes(self):
         self.ex.market_max = "0.005"
         with self.assertRaises(ValueError) as cm:

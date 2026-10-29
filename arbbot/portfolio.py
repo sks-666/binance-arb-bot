@@ -70,6 +70,11 @@ class Store:
         ).fetchone()
         return float(row[0]), int(row[1]), int(row[2])
 
+    def pnl_events(self, since: float = 0.0) -> list[tuple[float, float, bool]]:
+        """Every closed trade since `since` as (closed_at, pnl_usd, True), for the P&L reports (arbbot/pnl_report.py)."""
+        rows = self.db.execute("SELECT closed_at, pnl_usd FROM trades WHERE closed_at >= ? ORDER BY closed_at", (since,))
+        return [(float(ts), float(pnl), True) for ts, pnl in rows.fetchall()]
+
     def pnl_since(self, ts: float) -> float:
         row = self.db.execute("SELECT COALESCE(SUM(pnl_usd), 0) FROM trades WHERE closed_at >= ?", (ts,)).fetchone()
         return float(row[0])

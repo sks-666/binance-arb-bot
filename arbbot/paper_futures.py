@@ -486,6 +486,12 @@ class PaperFutures:
                 log.warning("paper futures price refresh failed: %s", self.last_error)
 
     # ---- what the page shows --------------------------------------------------------------------
+    async def pnl_events(self) -> tuple[list[tuple[float, float, bool]], str]:
+        """This paper account's fills for the P&L reports: a closing fill is a trade (realised P&L minus its fee),
+        an opening fill only costs its fee. Only the last KEEP fills are kept."""
+        out = [(t["time"] / 1000, t["realized"] - t["fee"], bool(t["realized"])) for t in self.s["trades"]]
+        return out, f"paper futures account · after fees · the last {KEEP} fills"
+
     def view(self) -> dict:
         positions, upnl = [], 0.0
         for sym, p in sorted(self.s["positions"].items()):

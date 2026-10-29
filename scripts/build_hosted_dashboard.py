@@ -86,10 +86,17 @@ def main() -> None:
     # 5. the market panel (chart, order book, trades) relays Binance through the LOCAL bot; the hosted copies have no
     #    /api/market, so the section goes (its script is already gone with step 4)
     html = must_sub(r"\s*<!--MARKET-->.*?<!--/MARKET-->", "", html)
+    html = must_sub(r"<!--NAV-MARKET-->.*?<!--/NAV-MARKET-->", "", html)
+    # 5b. the P&L reports read /api/pnl from the LOCAL bot's databases; the hosted copy only has the snapshot
+    html = must_sub(r"<!--NAV-PNL-->.*?<!--/NAV-PNL-->", "", html)
+    html, n = re.subn(r"\s*<!--PNL-->.*?<!--/PNL-->", "", html, flags=re.S)
+    if n < 2:
+        sys.exit("build failed: the P&L report blocks were not found (did the page change?)")
     # 6. hosted page should never be indexed
     html = must_sub(r"<title>", '<meta name="robots" content="noindex, nofollow">\n<title>', html)
     for forbidden in ("btn-pause", "btn-flat", "WebSocket(", "__TOKEN__", "X-Token", "/api/halt", "/api/flatten",
-                      "/api/swing-capital", "/api/market", "mk-card", "mkTick", "/api/paper", 'id="ot-buy"', "pfPoll", "/api/swing-power"):
+                      "/api/swing-capital", "/api/market", "mk-card", "mkTick", "/api/paper", 'id="ot-buy"', "pfPoll", "/api/swing-power",
+                      "/api/pnl", 'class="pnl"'):
         if forbidden in html:
             sys.exit(f"build failed: {forbidden!r} is still present in the hosted page")
     if "/api/snapshot" not in html:

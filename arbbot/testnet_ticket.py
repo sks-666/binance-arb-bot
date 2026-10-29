@@ -86,6 +86,7 @@ class TestnetTicket:
         self.fills: list[dict] = []
         self.last_error = ""
         self._fills_at = 0.0
+        self._income, self._income_at = None, 0.0     # P&L report cache (pnl_events)
         self._lock = asyncio.Lock()
 
     # ---- state ------------------------------------------------------------------------------------
@@ -344,7 +345,7 @@ class TestnetTicket:
                     mark=float(p.get("markPrice") or 0) or None,
                     pnl=float(p.get("unRealizedProfit") or p.get("unrealizedProfit") or 0))
 
-    async def fills(self, symbol: str, start_ms: float, end_ms: float) -> list[dict]:
+    async def fills_between(self, symbol: str, start_ms: float, end_ms: float) -> list[dict]:
         """This account's fills on one coin between two times (read-only; Binance allows at most 7 days per call)."""
         return await self.c.get("fapi", "/fapi/v1/userTrades", {"symbol": symbol, "startTime": int(start_ms),
                                                                  "endTime": int(end_ms), "limit": 1000}, signed=True)
@@ -502,6 +503,36 @@ class TestnetTicket:
     def _usdt(self, key: str) -> float:
         a = next((x for x in (self.account or {}).get("assets", []) if x.get("asset") == "USDT"), {})
         return float(a.get(key) or 0)
+
+    async def pnl_events(self) -> tuple[list[tuple[float, float, bool]], str]:
+        """The whole futures account's P&L for the reports, from Binance's income history (it keeps about 3 months):
+        realised P&L of closing fills (fills of one coin within 2 minutes count as one trade), fees and funding.
+        Read-only; cached for 2 minutes (weight 30 per page)."""
+        if self._income is not None and self.clock() - self._income_at < 120:
+            return self._income
+        start, rows = int((self.clock() - 89 * 86_400) * 1000), []
+        for _ in range(10):
+            got = await self.c.get("fapi", "/fapi/v1/income", {"startTime": start, "limit": 1000}, signed=True)
+            rows += got
+            if len(got) < 1000:
+                break
+            start = int(got[-1]["time"]) + 1
+        events, last = [], {}
+        for r in sorted(rows, key=lambda r: int(r["time"])):
+            kind, amount, ts = r.get("incomeType"), float(r.get("income") or 0), int(r["time"]) / 1000
+            if kind == "REALIZED_PNL":
+                sym, prev = r.get("symbol", ""), last.get(r.get("symbol", ""))
+                if prev is not None and ts - events[prev][0] <= 120:       # one order, several fills
+                    events[prev] = (events[prev][0], events[prev][1] + amount, True)
+                else:
+                    last[sym] = len(events)
+                    events.append((ts, amount, True))
+            elif kind in ("COMMISSION", "FUNDING_FEE"):
+                events.append((ts, amount, False))
+        self._income = (events, f"{self.venue} futures account · realised P&L, fees and funding from Binance "
+                                f"(about 3 months kept) · wins counted before fees")
+        self._income_at = self.clock()
+        return self._income
 
     def view(self) -> dict:
         arb = self.arb_symbols()
