@@ -118,7 +118,10 @@ class Dashboard:
             return await handler(request)
 
         app = web.Application(middlewares=[guard])
-        app.router.add_get("/", self.index)
+        app.router.add_get("/", self.index)                 # the P&L reports
+        for page in ("/arbitrage", "/swing", "/market"):    # the details: same page, another view (see pageView())
+            app.router.add_get(page, self.index)
+            app.router.add_get(page + "/", self.index)
         app.router.add_get("/ws", self.ws)
         app.router.add_get("/api/snapshot", self.snapshot)
         app.router.add_get("/api/pnl", self.pnl)

@@ -198,7 +198,13 @@
   .nav a { color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 999px;
            border: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
   .nav a:hover, .nav a:focus-visible { color: var(--text); border-color: var(--accent); outline: none; }
-  section[id], div[id="arb"] { scroll-margin-top: 56px; }
+  .nav a[aria-current="page"] { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+  /* the P&L reports page */
+  .reports { display: grid; gap: 14px; }
+  .reports .card + .card { margin-top: 0; }
+  .card-h a.more { color: var(--accent); text-decoration: none; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+  .card-h a.more:hover, .card-h a.more:focus-visible { text-decoration: underline; outline: none; }
+  @media (max-width: 640px) { .card-h { flex-wrap: wrap; } }
   /* P&L report (daily / weekly / monthly) */
   .pnl { border-top: 1px solid var(--line); padding: 12px 14px 14px; }
   .pnl-h { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -232,14 +238,9 @@
     <div class="hdr-right"><span class="badge" title="This page has no controls">READ-ONLY</span><span class="badge" id="updated">connecting…</span></div>
   </header>
 
-  <nav class="nav" aria-label="Sections">
-    <a href="#overview">Overview</a><a href="#arb">Arbitrage</a>
-    <a href="#sw-card">Swing kit</a>
-  </nav>
-
   <div id="banner" class="banner" role="status"></div>
 
-  <section class="kpis" id="overview" aria-label="Summary">
+  <section class="kpis" id="overview" aria-label="Summary" data-show="arb">
     <div class="kpi"><div class="l">Markets</div><div class="v" id="k-markets">–</div><div class="s" id="k-markets-s">&nbsp;</div></div>
     <div class="kpi"><div class="l">Signals now</div><div class="v" id="k-signals">–</div><div class="s" id="k-signals-s">&nbsp;</div></div>
     <div class="kpi"><div class="l">Open positions</div><div class="v" id="k-open">–</div><div class="s" id="k-open-s">&nbsp;</div></div>
@@ -249,7 +250,7 @@
     <div class="kpi"><div class="l">Feed</div><div class="v" id="k-feed">–</div><div class="s" id="k-feed-s">&nbsp;</div></div>
   </section>
 
-  <div class="grid" id="arb">
+  <div class="grid" id="arb" data-show="arb">
     <section class="card" aria-labelledby="h-markets">
       <div class="card-h"><h2 id="h-markets">Markets</h2><span class="hint" id="mk-hint">click a column to sort</span></div>
       <div class="scroll tall">
@@ -276,7 +277,7 @@
     </div>
   </div>
 
-  <section class="card" id="sw-card" aria-labelledby="h-swing" style="margin-top:14px">
+  <section class="card" id="sw-card" aria-labelledby="h-swing" style="margin-top:14px" data-show="swing">
     <div class="card-h"><h2 id="h-swing">Swing paper accounts · trend · swing · SMC</h2>
       <div class="sw-right"><span class="hint" id="sw-hint"></span>
         <span class="sw-power" id="sw-power" hidden><span id="sw-power-l"></span><button type="button" class="sw-toggle" id="sw-toggle" role="switch" aria-checked="true" aria-label="Swing toolkit on or off"></button></span></div></div>
@@ -461,7 +462,8 @@ function renderAll() {
   const mode = $("b-mode");
   mode.textContent = snap.mode === "live" ? `LIVE · ${snap.env.toUpperCase()}` : "PAPER";
   mode.className = "badge " + snap.mode;
-  document.title = `${mode.textContent} · Basis Arb Monitor`;   // so each browser tab says which bot it is
+  const page = typeof pageLabel === "function" ? pageLabel() : "";   // not on the hosted copy (one page there)
+  document.title = `${mode.textContent}${page ? " · " + page : ""} · Basis Arb Monitor`;   // each tab says which bot and page
   $("b-sim").hidden = f.kind !== "sim";
   $("dot").className = "dot " + (f.ok ? "ok" : "bad");
   const fb = f.configured === "ws" && f.kind === "rest";

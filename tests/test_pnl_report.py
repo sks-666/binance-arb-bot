@@ -111,6 +111,15 @@ class RouteTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.client.close()
 
+    async def test_the_report_page_and_each_detail_page_serve_the_dashboard(self):
+        for path in ("/", "/arbitrage", "/swing", "/market", "/market/"):
+            r = await self.client.get(path)
+            body = await r.text()
+            self.assertEqual(r.status, 200, path)
+            self.assertIn('data-show="reports"', body)
+            self.assertIn(self.dash.token, body)
+        self.assertEqual((await self.client.get("/nowhere")).status, 404)
+
     async def test_reports_per_panel(self):
         r = await self.client.get("/api/pnl?panel=arb&period=week")
         d = await r.json()

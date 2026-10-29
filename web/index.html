@@ -197,7 +197,13 @@
   .nav a { color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 999px;
            border: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
   .nav a:hover, .nav a:focus-visible { color: var(--text); border-color: var(--accent); outline: none; }
-  section[id], div[id="arb"] { scroll-margin-top: 56px; }
+  .nav a[aria-current="page"] { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+  /* the P&L reports page */
+  .reports { display: grid; gap: 14px; }
+  .reports .card + .card { margin-top: 0; }
+  .card-h a.more { color: var(--accent); text-decoration: none; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+  .card-h a.more:hover, .card-h a.more:focus-visible { text-decoration: underline; outline: none; }
+  @media (max-width: 640px) { .card-h { flex-wrap: wrap; } }
   /* P&L report (daily / weekly / monthly) */
   .pnl { border-top: 1px solid var(--line); padding: 12px 14px 14px; }
   .pnl-h { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -235,14 +241,29 @@
     </div>
   </header>
 
-  <nav class="nav" aria-label="Sections">
-    <a href="#overview">Overview</a><a href="#arb">Arbitrage</a><!--NAV-PNL--><a href="#arb-pnl">Arbitrage P&amp;L</a><!--/NAV-PNL-->
-    <a href="#sw-card">Swing kit</a><!--NAV-MARKET--><a href="#mk-card">Market &amp; ticket</a><!--/NAV-MARKET-->
-  </nav>
+  <!--NAV--><nav class="nav" aria-label="Pages">
+    <a href="/" data-view="reports">P&amp;L reports</a><a href="/arbitrage" data-view="arb">Arbitrage</a>
+    <a href="/swing" data-view="swing">Swing kit</a><a href="/market" data-view="market">Market &amp; ticket</a>
+  </nav><!--/NAV-->
 
   <div id="banner" class="banner" role="status"></div>
 
-  <section class="kpis" id="overview" aria-label="Summary">
+  <!--PNL--><div class="reports" data-show="reports">
+    <section class="card" aria-labelledby="h-r-arb">
+      <div class="card-h"><h2 id="h-r-arb">Arbitrage</h2><a class="more" href="/arbitrage">Markets, positions, trades, log →</a></div>
+      <div class="pnl" data-panel="arb" data-title="Arbitrage trades"></div>
+    </section>
+    <section class="card" aria-labelledby="h-r-sw">
+      <div class="card-h"><h2 id="h-r-sw">Swing kit</h2><a class="more" href="/swing">Accounts, positions, setups, trades →</a></div>
+      <div class="pnl" data-panel="swing" data-sources="demo,swing" data-title="Trend · swing · SMC"></div>
+    </section>
+    <section class="card" aria-labelledby="h-r-tk">
+      <div class="card-h"><h2 id="h-r-tk">Futures account</h2><a class="more" href="/market">Chart, order book, order ticket →</a></div>
+      <div class="pnl" data-panel="ticket" data-title="Order ticket account"></div>
+    </section>
+  </div><!--/PNL-->
+
+  <section class="kpis" id="overview" aria-label="Summary" data-show="arb">
     <div class="kpi"><div class="l">Markets</div><div class="v" id="k-markets">–</div><div class="s" id="k-markets-s">&nbsp;</div></div>
     <div class="kpi"><div class="l">Signals now</div><div class="v" id="k-signals">–</div><div class="s" id="k-signals-s">&nbsp;</div></div>
     <div class="kpi"><div class="l">Open positions</div><div class="v" id="k-open">–</div><div class="s" id="k-open-s">&nbsp;</div></div>
@@ -252,7 +273,7 @@
     <div class="kpi"><div class="l">Feed</div><div class="v" id="k-feed">–</div><div class="s" id="k-feed-s">&nbsp;</div></div>
   </section>
 
-  <div class="grid" id="arb">
+  <div class="grid" id="arb" data-show="arb">
     <section class="card" aria-labelledby="h-markets">
       <div class="card-h"><h2 id="h-markets">Markets</h2><span class="hint" id="mk-hint">click a column to sort</span></div>
       <div class="scroll tall">
@@ -279,12 +300,7 @@
     </div>
   </div>
 
-  <!--PNL--><section class="card" id="arb-pnl" aria-labelledby="h-arb-pnl" style="margin-top:14px">
-    <div class="card-h"><h2 id="h-arb-pnl">Arbitrage P&amp;L report</h2><span class="hint">UTC days · weeks from Monday · months</span></div>
-    <div class="pnl" data-panel="arb" data-title="Arbitrage trades"></div>
-  </section><!--/PNL-->
-
-  <section class="card" id="sw-card" aria-labelledby="h-swing" style="margin-top:14px">
+  <section class="card" id="sw-card" aria-labelledby="h-swing" style="margin-top:14px" data-show="swing">
     <div class="card-h"><h2 id="h-swing">Swing paper accounts · trend · swing · SMC</h2>
       <div class="sw-right"><span class="hint" id="sw-hint"></span>
         <span class="sw-power" id="sw-power" hidden><span id="sw-power-l"></span><button type="button" class="sw-toggle" id="sw-toggle" role="switch" aria-checked="true" aria-label="Swing toolkit on or off"></button></span></div></div>
@@ -299,13 +315,12 @@
         <div><h3>Recent swing trades</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Opened → closed</th><th>In → out</th><th>P&amp;L</th><th>R</th><th>Out</th></tr></thead><tbody id="sw-trades"></tbody></table></div></div>
         <div id="sw-demo-wrap" hidden><h3>Demo account trades · Binance futures testnet</h3><div class="tbl scroll mid"><table><thead><tr><th>Account</th><th>Market</th><th>Side</th><th>Opened → closed</th><th>In → out</th><th>P&amp;L after fees</th><th>Out</th></tr></thead><tbody id="sw-demo"></tbody></table></div></div>
       </div>
-      <!--PNL--><div class="pnl" data-panel="swing" data-sources="demo,swing" data-title="Swing kit P&amp;L report"></div><!--/PNL-->
       <div class="sw-note" id="sw-note"></div>
     </div>
   </section>
 
   <!--MARKET-->
-  <section class="card" id="mk-card" aria-labelledby="h-market" style="margin-top:14px">
+  <section class="card" id="mk-card" aria-labelledby="h-market" style="margin-top:14px" data-show="market">
     <div class="card-h"><h2 id="h-market">Market · Binance USD-M futures</h2><span class="hint" id="mk-hint">connecting…</span></div>
     <div class="mk-grid three">
       <div class="mk-box mk-chartbox">
@@ -407,7 +422,6 @@
         <div id="pf-pane-hist" class="tbl scroll mid" hidden><table><thead><tr><th style="text-align:left">Time</th><th style="text-align:left">Market</th><th>Type</th><th>Side</th><th>Avg / price</th><th>Amount</th><th>Status</th><th class="why">Note</th></tr></thead><tbody id="pf-hist"></tbody></table></div>
         <div id="pf-pane-trades" class="tbl scroll mid" hidden><table><thead><tr><th style="text-align:left">Time</th><th style="text-align:left">Market</th><th>Side</th><th>Price</th><th>Amount</th><th>Fee</th><th>Realized PnL</th><th>Role</th></tr></thead><tbody id="pf-trades"></tbody></table></div>
         <div id="pf-pane-assets" hidden><div class="mk-kv" id="pf-assets"></div></div>
-        <div class="pnl" data-panel="ticket" data-title="Futures account P&amp;L report"></div>
       </div>
     </div>
     <div class="sw-note">Live public market data from Binance USD-M futures, relayed by this bot (read-only: nothing here can place an order). Click a top mover to chart it.</div>
@@ -581,7 +595,8 @@ function renderAll() {
   const mode = $("b-mode");
   mode.textContent = snap.mode === "live" ? `LIVE · ${snap.env.toUpperCase()}` : "PAPER";
   mode.className = "badge " + snap.mode;
-  document.title = `${mode.textContent} · Basis Arb Monitor`;   // so each browser tab says which bot it is
+  const page = typeof pageLabel === "function" ? pageLabel() : "";   // not on the hosted copy (one page there)
+  document.title = `${mode.textContent}${page ? " · " + page : ""} · Basis Arb Monitor`;   // each tab says which bot and page
   $("b-sim").hidden = f.kind !== "sim";
   $("dot").className = "dot " + (f.ok ? "ok" : "bad");
   const fb = f.configured === "ws" && f.kind === "rest";
@@ -897,7 +912,7 @@ const MK_TASKS = {
   movers: { every: 15000, when: () => MK.low === "movers", run: async () => { const m = await mkGet("movers"); return () => { MK.movers = m; renderMovers(); }; } },
 };
 function mkTick() {
-  if (document.hidden) return;
+  if (document.hidden || pageView() !== "market") return;   // only the market page polls Binance for it
   mkSyncSymbols();
   const now = Date.now();
   for (const [name, t] of Object.entries(MK_TASKS)) {
@@ -1161,7 +1176,7 @@ function pfRender() {
     kv("Fees", `maker ${(st.maker_bps / 100).toFixed(3)}% · taker ${(st.taker_bps / 100).toFixed(3)}%`) + kv("Maintenance margin", (st.mmr * 100).toFixed(2) + "%");
 }
 async function pfPoll() {
-  if (document.hidden || OT.busy) return;
+  if (document.hidden || OT.busy || pageView() !== "market") return;
   OT.busy = true;
   try {
     const r = await fetch("/api/paper/state", { cache: "no-store" });
@@ -1239,6 +1254,20 @@ otMode(); pfRender();
 setInterval(pfPoll, 2000);
 pfPoll();
 mkTick();
+
+// ---- pages: / = the P&L reports, /arbitrage, /swing, /market = the details (one HTML page, one view each) -------
+const PAGES = { reports: "P&L reports", arb: "Arbitrage", swing: "Swing kit", market: "Market & ticket" };
+function pageView() {
+  return { "/arbitrage": "arb", "/swing": "swing", "/market": "market" }[location.pathname.replace(/\/+$/, "")] || "reports";
+}
+function pageLabel() { return PAGES[pageView()]; }
+(function showPage() {
+  const v = pageView();
+  document.querySelectorAll("[data-show]").forEach(el => { el.hidden = !el.dataset.show.split(" ").includes(v); });
+  document.querySelectorAll(".nav a[data-view]").forEach(a => {
+    if (a.dataset.view === v) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+})();
 
 // ---- P&L reports: daily / weekly / monthly on each panel (/api/pnl) --------------------------------------------
 const PNL_PER = [["day", "Daily"], ["week", "Weekly"], ["month", "Monthly"]], PNL_SRC = { demo: "Demo account", swing: "Paper" };

@@ -86,12 +86,13 @@ def main() -> None:
     # 5. the market panel (chart, order book, trades) relays Binance through the LOCAL bot; the hosted copies have no
     #    /api/market, so the section goes (its script is already gone with step 4)
     html = must_sub(r"\s*<!--MARKET-->.*?<!--/MARKET-->", "", html)
-    html = must_sub(r"<!--NAV-MARKET-->.*?<!--/NAV-MARKET-->", "", html)
-    # 5b. the P&L reports read /api/pnl from the LOCAL bot's databases; the hosted copy only has the snapshot
-    html = must_sub(r"<!--NAV-PNL-->.*?<!--/NAV-PNL-->", "", html)
+    # 5b. the P&L reports read /api/pnl from the LOCAL bot's databases, and the page menu links to the local bot's
+    #     /arbitrage /swing /market views; the hosted copy has neither, so it shows the arbitrage and swing details on
+    #     one page (the view switching script went with step 4)
+    html = must_sub(r"\s*<!--NAV-->.*?<!--/NAV-->", "", html)
     html, n = re.subn(r"\s*<!--PNL-->.*?<!--/PNL-->", "", html, flags=re.S)
-    if n < 2:
-        sys.exit("build failed: the P&L report blocks were not found (did the page change?)")
+    if n < 1:
+        sys.exit("build failed: the P&L report block was not found (did the page change?)")
     # 6. hosted page should never be indexed
     html = must_sub(r"<title>", '<meta name="robots" content="noindex, nofollow">\n<title>', html)
     for forbidden in ("btn-pause", "btn-flat", "WebSocket(", "__TOKEN__", "X-Token", "/api/halt", "/api/flatten",
