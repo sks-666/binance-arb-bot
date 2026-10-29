@@ -41,6 +41,17 @@ Both bots start with `--lan` from `Start Binance Bots.command`, so their dashboa
 
 The Mac's Wi-Fi address was `192.168.100.9` when this was written; it can change after a router restart.
 
+**Pages** (the same on the Mac and the phone; the menu under the header switches between them):
+
+| Address | What it shows |
+|---|---|
+| `/` | Only the P&L reports, daily / weekly / monthly: arbitrage, swing kit (demo account or paper), futures account |
+| `/arbitrage` | Summary cards, markets, open positions, recent trades, event log |
+| `/swing` | Swing kit accounts, funds, open positions (and whether each is on the demo account), setups, trades |
+| `/market` | Chart, order book, order ticket, positions and orders of the futures account |
+
+The header (LIVE / TESTNET badge, Pause or Resume entries, Flatten all, theme) is on every page.
+
 **Get your phone links** (they are printed with the key filled in, every time the bots start):
 
 ```bash
