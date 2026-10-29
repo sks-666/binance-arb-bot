@@ -1,0 +1,20 @@
+# systemd user service (Linux): the PAPER bot (live public prices, simulated fills, never an order), started at boot
+# and restarted if it crashes. The Linux twin of deploy/com.arbbot.plist (macOS launchd).
+# Install / remove: see "Running 24/7 (Linux systemd)" in README.md. %h is your home folder: change the paths if the
+# project is not in ~/binance-arb-bot.
+[Unit]
+Description=binance-arb-bot (paper)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/binance-arb-bot
+ExecStart=%h/binance-arb-bot/.venv/bin/python run.py
+Restart=on-failure
+RestartSec=15
+StandardOutput=append:%h/binance-arb-bot/logs/systemd-paper.out.log
+StandardError=append:%h/binance-arb-bot/logs/systemd-paper.err.log
+
+[Install]
+WantedBy=default.target

@@ -1,5 +1,6 @@
 #!/bin/bash
 # Double-click to start the bots (they keep running after this window closes; stop them with "Stop Binance Bots.command").
+# Linux: run ./start-bots.sh from a terminal (the same script).
 #
 #   TESTNET bot  - test money. Starts right away. Dashboard http://127.0.0.1:8767
 #   MAINNET bot  - REAL MONEY. Only if you say so here: the read-only account check must pass first, then you type the
@@ -22,13 +23,23 @@ mkdir -p logs
 
 running() { pgrep -f "$1" >/dev/null; }
 
+browse() {   # open a dashboard: macOS `open`, a Linux desktop's `xdg-open`; on a server with no screen just say where
+    if [[ "$(uname)" == "Darwin" ]]; then
+        open "$1"
+    elif [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]] && command -v xdg-open >/dev/null; then
+        xdg-open "$1" >/dev/null 2>&1 &
+    else
+        echo "    open $1 in a browser on this computer"
+    fi
+}
+
 wait_for() {   # $1 = log file, $2 = name, $3 = dashboard url, $4 = process pattern
     for _ in $(seq 1 60); do
         if grep -q "dashboard:" "$1" 2>/dev/null; then
             echo "  $2 is up: $3   (log: $1)"
             sleep 1
             grep -h "phone:" "$1" | sed 's/.*phone: /    on your phone (same Wi-Fi): /'
-            open "$3"
+            browse "$3"
             return 0
         fi
         if ! running "$4"; then

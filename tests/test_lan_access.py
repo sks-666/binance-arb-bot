@@ -75,6 +75,26 @@ class LanTests(unittest.IsolatedAsyncioTestCase):
         await self.start(cls=Dashboard, key=None)
         self.assertEqual((await self.get("/", f"192.168.100.9:{self.port}")).status, 403)
 
+    def test_home_network_addresses_on_linux_and_macos(self):
+        from unittest import mock
+        from arbbot import server
+        linux_ip = ("1: lo    inet 127.0.0.1/8 scope host lo\n"
+                    "3: wlan0    inet 192.168.1.23/24 brd 192.168.1.255 scope global dynamic wlan0\n"
+                    "4: docker0    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0\n"
+                    "5: nordlynx    inet 10.5.0.2/32 scope global nordlynx\n"
+                    "6: tun0    inet 10.8.0.3/24 scope global tun0\n")
+        old_linux_ifconfig = ("eth0      Link encap:Ethernet\n          inet addr:10.0.0.7  Bcast:10.0.0.255\n"
+                              "lo        Link encap:Local Loopback\n          inet addr:127.0.0.1  Mask:255.0.0.0\n")
+        mac_ifconfig = ("lo0: flags=8049<UP,LOOPBACK>\n\tinet 127.0.0.1 netmask 0xff000000\n"
+                        "en0: flags=8863<UP>\n\tinet 192.168.100.9 netmask 0xffffff00 broadcast 192.168.100.255\n"
+                        "utun4: flags=8051<UP>\n\tinet 10.5.0.2 --> 10.5.0.2 netmask 0xff000000\n")
+        for outputs, want in (({"ip": linux_ip}, ["192.168.1.23"]),                 # Docker and VPNs left out
+                              ({"ifconfig": old_linux_ifconfig}, ["10.0.0.7"]),       # no `ip`: net-tools format
+                              ({"ifconfig": mac_ifconfig}, ["192.168.100.9"]),        # macOS has no `ip`
+                              ({}, [])):                                              # neither tool
+            with mock.patch.object(server, "_run", lambda cmd, o=outputs: o.get(cmd[0], "")):
+                self.assertEqual(server.lan_addresses(), want)
+
     def test_the_key_is_kept_private_and_reused(self):
         path = Path(tempfile.mkdtemp()) / "lan-key-8767.txt"
         key = lan_key(path)

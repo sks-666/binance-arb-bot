@@ -54,21 +54,42 @@ def lan_key(path: Path) -> str:
     return key
 
 
-def lan_addresses() -> list[str]:
-    """This Mac's addresses on the home network (private IPv4 on real interfaces; VPN tunnels and loopback left out)."""
+# interfaces that are not the home network: loopback, VPN tunnels (macOS utun, Linux tun/wg/NordLynx), containers and
+# virtual bridges (Docker, libvirt), Apple's peer-to-peer links
+NOT_LAN = ("lo", "utun", "tun", "tap", "wg", "nordlynx", "docker", "br-", "veth", "virbr", "bridge", "awdl", "llw")
+
+
+def _run(cmd: list[str]) -> str:
     try:
-        out = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=5).stdout
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=5).stdout
     except (OSError, subprocess.SubprocessError):
-        return []
-    found, iface = [], ""
-    for line in out.splitlines():
-        if line and not line[0].isspace():
-            iface = line.split(":", 1)[0]
-        elif line.strip().startswith("inet ") and not iface.startswith(("lo", "utun", "bridge", "awdl", "llw")):
-            ip = line.split()[1]
-            if ipaddress.ip_address(ip).is_private:
-                found.append(ip)
-    return found
+        return ""
+
+
+def lan_addresses() -> list[str]:
+    """This computer's addresses on the home network: private IPv4 on real interfaces. Linux: `ip -4 -o addr`
+    (most distributions no longer ship ifconfig); macOS and older Linux: `ifconfig`."""
+    found = []
+    for line in _run(["ip", "-4", "-o", "addr", "show"]).splitlines():   # "3: wlan0    inet 192.168.1.5/24 brd ..."
+        parts = line.split()
+        if len(parts) >= 4 and parts[2] == "inet" and not parts[1].startswith(NOT_LAN):
+            found.append(parts[3].split("/")[0])
+    if not found:
+        iface = ""
+        for line in _run(["ifconfig"]).splitlines():
+            if line and not line[0].isspace():
+                iface = line.split(":", 1)[0]
+            elif line.strip().startswith("inet ") and not iface.startswith(NOT_LAN):
+                found.append(line.split()[1].removeprefix("addr:"))       # old Linux net-tools: "inet addr:1.2.3.4"
+    return [ip for ip in found if _private_ipv4(ip)]
+
+
+def _private_ipv4(ip: str) -> bool:
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return a.version == 4 and a.is_private and not a.is_loopback
 
 
 LOCKED = """<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

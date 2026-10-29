@@ -472,6 +472,55 @@ access under *System Settings → Privacy & Security → Files and Folders* (or 
 `~/Documents`); the Mac must be awake and online (use `caffeinate` or Energy settings); and if your DNS
 blocks Binance the bot stays safe but blind (feed down, no entries) until it recovers.
 
+## Linux
+
+The bot is plain Python (3.10 or newer; this project uses 3.14) with one dependency (`aiohttp`), so it runs the same
+on Linux. Setup:
+
+```bash
+git clone https://github.com/sks-666/binance-arb-bot.git ~/binance-arb-bot && cd ~/binance-arb-bot
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env          # then put your own keys in .env (never share it)
+.venv/bin/python run.py --check --testnet --config config.testnet.toml   # read-only key check
+```
+
+| macOS | Linux |
+|---|---|
+| double-click `Start Binance Bots.command` | `./start-bots.sh` (the same script: same questions, same `TRADE REAL MONEY` confirmation for mainnet) |
+| double-click `Stop Binance Bots.command` | `./stop-bots.sh` |
+| double-click `Run Backtests.command` | `./run-backtests.sh` |
+| the dashboard opens in your browser | it opens with `xdg-open` on a desktop; on a server with no screen the address is printed instead |
+| `deploy/com.arbbot.plist` (launchd) | `deploy/arbbot.service` / `deploy/arbbot-testnet.service` (systemd, below) |
+
+The phone link finds the computer's home-network address with `ip` (or `ifconfig` where `ip` is missing), leaving
+out VPN tunnels (tun, wg, NordLynx), Docker and virtual bridges. If the computer runs a firewall (`ufw`), allow the
+dashboard ports from your home network only, for example `sudo ufw allow from 192.168.0.0/16 to any port 8765:8767 proto tcp`.
+
+### Running 24/7 (Linux systemd)
+
+Two user services, both restarted if they crash. There is deliberately **no service for the mainnet bot**: real
+money only starts by hand with `./start-bots.sh`. Edit the paths inside if the project is not in `~/binance-arb-bot`.
+
+| Service | What it runs |
+|---|---|
+| `deploy/arbbot.service` | the PAPER bot (live prices, simulated fills, never an order), like the macOS launchd agent |
+| `deploy/arbbot-testnet.service` | the TESTNET bot as `start-bots.sh` starts it (swing kit on the demo account, port 8767, phone link) |
+
+```bash
+mkdir -p ~/.config/systemd/user && cp deploy/arbbot-testnet.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now arbbot-testnet      # start now and at every login
+loginctl enable-linger "$USER"                    # keep it running when you are logged out / after a reboot
+systemctl --user status arbbot-testnet            # is it running?
+tail -f logs/testnet-bot.out
+systemctl --user disable --now arbbot-testnet     # stop + disable
+```
+
+Use either the service or `start-bots.sh` / `stop-bots.sh` for the testnet bot, not both at once: the stop script
+stops it, but a service restarts only after a crash, so a stopped service stays stopped until
+`systemctl --user start arbbot-testnet`. If the mainnet bot runs too, it answers the Telegram commands, so add
+`--no-commands` to the testnet service's ExecStart (one bot per Telegram token).
+
 ## Running without your computer (Render)
 
 `python run.py --hosted` is the container-host mode: **paper only** (`--hosted --live` refuses to start), and the
